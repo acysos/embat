@@ -1,0 +1,158 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* base_embat
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-07-19 22:35+0000\n"
+"PO-Revision-Date: 2025-07-19 22:35+0000\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: \n"
+"Plural-Forms: \n"
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__company_id
+msgid "Company"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__create_uid
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__create_uid
+msgid "Created by"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__create_date
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__create_date
+msgid "Created on"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model,name:base_embat.model_embat_data
+msgid "Data Embat"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__display_name
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__display_name
+msgid "Display Name"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__embat_company_id
+msgid "Embat Company ID"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.actions.act_window,name:base_embat.action_embat_data
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__embat_data_id
+#: model:ir.ui.menu,name:base_embat.menu_embat_data
+msgid "Embat Data"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__embat_token
+msgid "Embat Token"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__embat_token_expiration
+msgid "Embat Token Expiration"
+msgstr ""
+
+#. module: base_embat
+#. odoo-python
+#: code:addons/base_embat/models/embat_data.py:0
+#, python-format
+msgid "Failed to retrieve Embat token: %s"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__id
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__id
+msgid "ID"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__embat_id
+msgid "ID Embat"
+msgstr ""
+
+#. module: base_embat
+#. odoo-python
+#: code:addons/base_embat/models/embat_data.py:0
+#, python-format
+msgid "Invalid JSON response from Embat API: %s"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__write_uid
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__write_uid
+msgid "Last Updated by"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__write_date
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__write_date
+msgid "Last Updated on"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__name
+msgid "Name"
+msgstr ""
+
+#. module: base_embat
+#. odoo-python
+#: code:addons/base_embat/models/embat_data.py:0
+#, python-format
+msgid "No companies were found in Embat."
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_company_wizard__name
+msgid "Nombre"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__username
+msgid "Secret ID"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,field_description:base_embat.field_embat_data__password
+msgid "Secret Key"
+msgstr ""
+
+#. module: base_embat
+#: model_terms:ir.ui.view,arch_db:base_embat.view_embat_company_wizard_tree
+msgid "Seleccionar"
+msgstr ""
+
+#. module: base_embat
+#. odoo-python
+#: code:addons/base_embat/models/embat_data.py:0
+#: model_terms:ir.ui.view,arch_db:base_embat.view_embat_data_form
+#, python-format
+msgid "Select Embat Company"
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,help:base_embat.field_embat_data__embat_company_id
+msgid "The ID of the company to use for Embat integration."
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model.fields,help:base_embat.field_embat_data__company_id
+msgid "The company to use for Embat integration."
+msgstr ""
+
+#. module: base_embat
+#: model:ir.model,name:base_embat.model_embat_company_wizard
+msgid "Wizard to select an Embat company"
+msgstr ""

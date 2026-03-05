@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_account_payment_form_embat_logs" model="ir.ui.view">
+        <field name="name">account.payment.form.embat.logs</field>
+        <field name="model">account.payment</field>
+        <field name="inherit_id" ref="account.view_account_payment_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <notebook>
+                    <page string="Embat API Logs" groups="base.group_no_one">
+                        <field name="embat_api_log_ids" readonly="1">
+                            <tree>
+                                <field name="create_date"/>
+                                <field name="request_type"/>
+                                <field name="name"/>
+                                <field name="response"/>
+                            </tree>
+                        </field>
+                    </page>
+                </notebook>
+            </xpath>
+        </field>
+    </record>
+</odoo>

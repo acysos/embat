@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Partner View -->
+    <record id="view_partner_form_inherit_embat_log" model="ir.ui.view">
+        <field name="name">res.partner.form.inherit.embat.log</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <notebook position="inside">
+                <page string="Embat API Logs" groups="base.group_system">
+                    <field name="embat_api_log_ids" readonly="1">
+                        <tree create="false" edit="false" delete="false">
+                            <field name="create_date" />
+                            <field name="name" />
+                            <field name="request_type" />
+                            <field name="response" />
+                        </tree>
+                    </field>
+                </page>
+            </notebook>
+        </field>
+    </record>
+
+
+</odoo>
