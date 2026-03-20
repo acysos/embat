@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+    Copyright (C) 2025 Acysos S.L. (https://www.acysos.com)
+    Licencia AGPL-3.0 o posterior (https://www.gnu.org/licenses/agpl-3.0.html).
+-->
+<odoo>
+
+    <record id="view_embat_data_tree" model="ir.ui.view">
+        <field name="name">embat.data.tree</field>
+        <field name="model">embat.data</field>
+        <field name="arch" type="xml">
+            <tree>
+                <field name="name" />
+                <field name="company_id" groups="base.group_multi_company" />
+                <field name="username" />
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_embat_data_form" model="ir.ui.view">
+        <field name="name">embat.data.form</field>
+        <field name="model">embat.data</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name" />
+                        <field name="company_id" groups="base.group_multi_company" />
+                        <field name="username" />
+                        <field name="password" password="True" />
+                        <button
+                                name="action_fetch_and_select_embat_companies"
+                                type="object"
+                                string="Select Embat Company"
+                                colspan="2"
+                                invisible="not username or not password"
+                        />
+                        <field name="embat_company_id" />
+                        <button name="sync_partners" type="object" string="Sync Partners" class="btn btn-secondary"
+                                colspan="2" invisible="not embat_company_id"/>
+                    </group>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_embat_data" model="ir.actions.act_window">
+        <field name="name">Embat Data</field>
+        <field name="res_model">embat.data</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <menuitem id="menu_embat_data" name="Embat Data" parent="account.account_management_menu" action="action_embat_data" sequence="10"/>
+</odoo>

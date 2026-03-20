@@ -1,0 +1,17 @@
+<!--
+    Copyright (C) 2025 Acysos S.L. (https://www.acysos.com)
+    Licencia AGPL-3.0 o posterior (https://www.gnu.org/licenses/agpl-3.0.html).
+-->
+<odoo>
+    <record id="view_embat_company_wizard_tree" model="ir.ui.view">
+        <field name="name">embat.company.wizard.tree</field>
+        <field name="model">embat.company.wizard</field>
+        <field name="arch" type="xml">
+            <tree create="false" edit="false" delete="false">
+                <field name="name"/>
+                <field name="embat_id"/>
+                <button name="action_select_company" type="object" string="Select" class="oe_highlight"/>
+            </tree>
+        </field>
+    </record>
+</odoo>

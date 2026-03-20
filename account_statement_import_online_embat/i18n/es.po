@@ -1,0 +1,173 @@
+# Translation of Odoo Server.
+# This file contains the translation of the following modules:
+# 	* account_statement_import_online_embat
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: Odoo Server 17.0+e\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-07-19 22:36+0000\n"
+"PO-Revision-Date: 2025-07-20 00:47+0200\n"
+"Last-Translator: \n"
+"Language-Team: \n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 3.6\n"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__company_id
+msgid "Company"
+msgstr "Companía"
+
+#. module: account_statement_import_online_embat
+#. odoo-python
+#: code:addons/account_statement_import_online_embat/models/online_bank_statement_provider.py:0
+#, python-format
+msgid "Could not retrieve the list of banks from Embat."
+msgstr "No se ha podido obtener la lista de bancos en Embat."
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__create_uid
+msgid "Created by"
+msgstr "Creado por"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__create_date
+msgid "Created on"
+msgstr "Creado el"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,help:account_statement_import_online_embat.field_online_bank_statement_provider__embat_data
+msgid "Data related to Embat integration."
+msgstr "Datos relacionados con la integración con Embat."
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__embat_date_type
+msgid "Date type for Embat Import"
+msgstr "Fecha para la importación de Embat"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__display_name
+msgid "Display Name"
+msgstr "Mostrar Nombre"
+
+#. module: account_statement_import_online_embat
+#: model_terms:ir.ui.view,arch_db:account_statement_import_online_embat.online_bank_statement_provider_form
+msgid "Embat"
+msgstr "Embat"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__embat_account_bank_id
+msgid "Embat Bank ID"
+msgstr "ID del banco en Embat"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__embat_company_id
+msgid "Embat Company ID"
+msgstr "ID Compañía Embat"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__embat_data
+msgid "Embat Data"
+msgstr "Datos Embat"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__embat_token
+msgid "Embat Token"
+msgstr "Embat Token"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__embat_token_expiration
+msgid "Embat Token Expiration"
+msgstr "Expiración Embat Token"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__id
+msgid "ID"
+msgstr "ID"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__write_uid
+msgid "Last Updated by"
+msgstr "Ult. Mod. por"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__write_date
+msgid "Last Updated on"
+msgstr "Ult. Mod. el"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__name
+msgid "Name"
+msgstr "Nombre"
+
+#. module: account_statement_import_online_embat
+#. odoo-python
+#: code:addons/account_statement_import_online_embat/models/online_bank_statement_provider.py:0
+#, python-format
+msgid "No bank account in journal"
+msgstr "No hay cuenta definida en el diario"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model,name:account_statement_import_online_embat.model_online_bank_statement_provider
+msgid "Online Bank Statement Provider"
+msgstr "Proveedor de Extractos Bancarios en Línea"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields.selection,name:account_statement_import_online_embat.selection__online_bank_statement_provider__embat_date_type__operation_date
+msgid "Operation Date"
+msgstr "Fecha de operación"
+
+#. module: account_statement_import_online_embat
+#. odoo-python
+#: code:addons/account_statement_import_online_embat/models/online_bank_statement_provider.py:0
+#, python-format
+msgid "Please select an Embat company before importing transactions."
+msgstr "Por favor, seleccione una compañía antes de importar transacciones."
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__username
+msgid "Secret ID"
+msgstr "ID Secreto"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,field_description:account_statement_import_online_embat.field_online_bank_statement_provider__password
+msgid "Secret Key"
+msgstr "Clave secreta"
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,help:account_statement_import_online_embat.field_online_bank_statement_provider__embat_account_bank_id
+msgid "The ID of the bank to use for Embat integration."
+msgstr "El ID del banco que se va a usar en la integración con Embat."
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,help:account_statement_import_online_embat.field_online_bank_statement_provider__embat_company_id
+msgid "The ID of the company to use for Embat integration."
+msgstr "El ID de la compañía que va a usar en la integración con Embat."
+
+#. module: account_statement_import_online_embat
+#. odoo-python
+#: code:addons/account_statement_import_online_embat/models/online_bank_statement_provider.py:0
+#, python-format
+msgid "The bank was not found in Embat."
+msgstr "No se han encontrado compañía en Embat."
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields,help:account_statement_import_online_embat.field_online_bank_statement_provider__company_id
+msgid "The company to use for Embat integration."
+msgstr "La compañía que se va a usar en la integración con Embat."
+
+#. module: account_statement_import_online_embat
+#. odoo-python
+#: code:addons/account_statement_import_online_embat/models/online_bank_statement_provider.py:0
+#, python-format
+msgid "The date type for Embat import is not set correctly."
+msgstr "El tipo de fecha para importar desde Embat no esta establecido correctamente."
+
+#. module: account_statement_import_online_embat
+#: model:ir.model.fields.selection,name:account_statement_import_online_embat.selection__online_bank_statement_provider__embat_date_type__valued_date
+msgid "Value Date"
+msgstr "Fecha valor"

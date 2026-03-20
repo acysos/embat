@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+    Copyright (C) 2025 Acysos S.L. (https://www.acysos.com)
+    Licencia AGPL-3.0 o posterior (https://www.gnu.org/licenses/agpl-3.0.html).
+-->
+<odoo>
+    <record model="ir.ui.view" id="online_bank_statement_provider_form">
+        <field name="name">online.bank.statement.provider.form</field>
+        <field name="model">online.bank.statement.provider</field>
+        <field
+                name="inherit_id"
+                ref="account_statement_import_online.online_bank_statement_provider_form"
+        />
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='main']" position="inside">
+                <group
+                        name="embat"
+                        string="Embat"
+                        invisible="service != 'embat'"
+                >
+                    <field name="embat_data_id" required="service == 'embat'" />
+                    <field name="embat_account_bank_id" invisible="not embat_account_bank_id" />
+                    <field name="embat_date_type" invisible="not embat_account_bank_id" />
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>
