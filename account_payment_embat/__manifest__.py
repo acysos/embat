@@ -13,6 +13,8 @@
     ],
     "data": [
         "views/embat_data_views.xml",
+        "views/account_payment_views.xml",
+
         "data/embat_data_cron.xml",
     ],
 }

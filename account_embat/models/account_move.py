@@ -15,7 +15,22 @@ class AccountMove(models.Model):
         string="Embat ID",
         help="The ID of the move in Embat.",
         readonly=True,
+        copy=False,
     )
+
+    embat_api_log_ids = fields.Many2many(
+        comodel_name="embat.api.log",
+        compute="_compute_embat_api_log_ids",
+        string="Embat API Logs",
+    )
+
+    def _compute_embat_api_log_ids(self):
+        for record in self:
+            domain = [
+                ("model", "=", record._name),
+                ("res_id", "=", record.id),
+            ]
+            record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
 
     def _prepare_embat_move_data(self, status, embat_type):
         self.ensure_one()
@@ -44,6 +59,7 @@ class AccountMove(models.Model):
             "documentType": "invoice",
             "tags": None,
             "pendingAmount": self.amount_residual_signed,
+            "pendingAccountingAmount": self.amount_residual_signed,
             "comments": None,
             "uploadedFiles": None,
             "secondary": None
@@ -128,4 +144,7 @@ class AccountMove(models.Model):
             for move in self:
                 if move.journal_id and move.journal_id.embat_id and move.move_type in ['out_invoice', 'in_refund', 'out_receipt', 'in_invoice', 'in_receipt', 'out_refund']:
                     move._load_embat_move_operation()
+                for line in move.line_ids:
+                    if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
+                        line._load_embat_move_line_asset()
         return res

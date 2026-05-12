@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_embat_data_manager,embat.data manager,model_embat_data,account.group_account_manager,1,1,1,1
 access_embat_company_wizard_manager,embat.company.wizard manager,model_embat_company_wizard,account.group_account_manager,1,1,1,1
+access_embat_api_log_manager,embat.api.log manager,model_embat_api_log,base.group_system,1,1,1,1

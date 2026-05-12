@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Embat API Configuration Parameters -->
+        <record id="embat_api_url_test" model="ir.config_parameter">
+            <field name="key">embat.api_url.test</field>
+            <field name="value">https://api-embat-fw3hjuy3oa-ey.a.run.app/</field>
+        </record>
+
+        <record id="embat_api_url_production" model="ir.config_parameter">
+            <field name="key">embat.api_url.production</field>
+            <field name="value">https://api.embat.io</field>
+        </record>
+
+        <record id="embat_environment" model="ir.config_parameter">
+            <field name="key">embat.environment</field>
+            <field name="value">test</field>
+        </record>
+
+        <record id="embat_requests_timeout" model="ir.config_parameter">
+            <field name="key">embat.requests_timeout</field>
+            <field name="value">60</field>
+        </record>
+
+        <record id="embat_expiration_delta" model="ir.config_parameter">
+            <field name="key">embat.expiration_delta</field>
+            <field name="value">3600</field>
+        </record>
+
+        <record id="embat_date_format" model="ir.config_parameter">
+            <field name="key">embat.date_format</field>
+            <field name="value">%Y-%m-%dT%H:%M:%S</field>
+        </record>
+    </data>
+</odoo>

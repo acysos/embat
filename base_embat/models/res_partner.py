@@ -13,6 +13,20 @@ class ResPartner(models.Model):
         readonly=True,
     )
 
+    embat_api_log_ids = fields.Many2many(
+        comodel_name="embat.api.log",
+        compute="_compute_embat_api_log_ids",
+        string="Embat API Logs",
+    )
+
+    def _compute_embat_api_log_ids(self):
+        for record in self:
+            domain = [
+                ("model", "=", record._name),
+                ("res_id", "=", record.id),
+            ]
+            record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
+
     def _load_embat_partner(self):
         if self.env.company.use_embat:
             for partner in self:

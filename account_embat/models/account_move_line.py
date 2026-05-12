@@ -3,6 +3,7 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 import datetime
+import json
 
 
 EMBAT_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
@@ -15,6 +16,13 @@ class AccountMoveLine(models.Model):
         string="Embat ID",
         help="The ID of the move line in Embat.",
         readonly=True,
+        copy=False,
+    )
+    embat_transaction_ids = fields.Char(
+        string="Embat Transaction IDs",
+        help="The IDs of the transactions in Embat.",
+        readonly=True,
+        copy=False,
     )
 
     def _prepare_embat_move_line_data(self, embat_format_date):
@@ -23,26 +31,38 @@ class AccountMoveLine(models.Model):
             "accountingCode": self.account_id.code,
             "counterpartAccountingCode": None,
             "accountingName": self.account_id.name,
-            "counterpartAccountingName": None,
             "assetAmount": self.credit,
+            "accountingAssetAmount": self.credit,
             "balance": None,
             "liabilityAmount": self.debit,
+            "accountingLiabilityAmount": self.debit,
+            "currency": self.company_id.currency_id.name,
+            "accountingCurrency": self.company_id.currency_id.name,
             "description": self.name,
             "date": embat_format_date,
             "customId": str(self.id),
+            "type": "banks",
+            "accountingEntryCode": self.move_id.name,
+            "accountingEntryCodeId": str(self.move_id.id),
+            "transactionsIds": [],
         }
 
-        if self.statement_line_id:
-            data['transactionsIds'] = self.statement_line_id.unique_import_id
+        if self.statement_line_id and self.statement_line_id.unique_import_id:
+            data['transactionsIds'] = [self.statement_line_id.unique_import_id]
         elif (hasattr(self.move_id, "embat_transaction_id") and
               self.move_id.embat_transaction_id):
-            data['transactionsIds'] = self.move_id.embat_transaction_id
+            if "," in self.move_id.embat_transaction_id:
+                data['transactionsIds'] = self.move_id.embat_transaction_id.split(",")
+            else:
+                data['transactionsIds'] = [self.move_id.embat_transaction_id]
 
         return data
 
     def _load_embat_move_line_asset(self):
         if self.env.company.use_embat:
             for line in self:
+                if line.move_id.state != 'posted':
+                    continue
                 embat_data = line.env.company.embat_data_id
                 if not embat_data:
                     raise UserError(_("Please configure the Embat data first."))
@@ -58,7 +78,7 @@ class AccountMoveLine(models.Model):
                 data = line._prepare_embat_move_line_data(embat_format_date)
 
                 if line.embat_id:
-                    endpoint = "accountingentries/" + embat_data.embat_company_id + "/" + line.embat_id
+                    endpoint = "accountingentries/" + embat_data.embat_company_id + "/" + str(line.id)
                     request_type = "patch"
                 else:
                     endpoint = "accountingentries/" + embat_data.embat_company_id
@@ -71,6 +91,26 @@ class AccountMoveLine(models.Model):
                 line.embat_id = content["id"]
                 message = _("Move line synced with Embat successfully: %s") % (line.embat_id)
                 embat_data._create_log("INFO", "ACCOUNTINGS_ENTRIES_INFO", message, line)
+
+                # Fetch transactionsIds
+                try:
+                    get_endpoint = f"accountingentries/{embat_data.embat_company_id}/{line.id}"
+                    get_response, get_content = embat_data._embat_request(
+                        get_endpoint, line, request_type="get"
+                    )
+                    if get_response.ok and get_content and "data" in get_content:
+                        transactions_ids = get_content["data"].get("transactionsIds")
+                        if transactions_ids:
+                            # Convert list to string if necessary, assuming it's a list based on name
+                            if isinstance(transactions_ids, list):
+                                line.embat_transaction_ids = json.dumps(transactions_ids)
+                            else:
+                                line.embat_transaction_ids = str(transactions_ids)
+                            msg = _("Transaction IDs retrieved from Embat: %s") % line.embat_transaction_ids
+                            embat_data._create_log("INFO", "ACCOUNTINGS_ENTRIES_INFO", msg, line)
+                except Exception as e:
+                    msg = _("Failed to retrieve transaction IDs from Embat: %s") % str(e)
+                    embat_data._create_log("WARNING", "ACCOUNTINGS_ENTRIES_INFO", msg, line)
 
     def _delete_embat_move_line_asset(self):
         """Delete the Embat move line if it exists."""

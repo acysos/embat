@@ -14,7 +14,11 @@
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/embat_config_data.xml",
         "views/embat_data_view.xml",
+        "views/embat_api_log_views.xml",
+        "views/res_partner_views.xml",
+
         "wizards/embat_company_wizard_views.xml",
     ],
 }
