@@ -9,7 +9,7 @@
 
         <record id="embat_api_url_production" model="ir.config_parameter">
             <field name="key">embat.api_url.production</field>
-            <field name="value"></field>
+            <field name="value">https://api.embat.io</field>
         </record>
 
         <record id="embat_environment" model="ir.config_parameter">
