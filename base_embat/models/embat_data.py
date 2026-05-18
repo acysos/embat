@@ -135,7 +135,7 @@ class EmbatAccount(models.Model):
         log_vals = {
             'name': url,
             'model': model._name,
-            'res_id': model.id if isinstance(model.id, int) else 0,
+            'res_id': model.id if isinstance(model.id, int) and type(model.id).__name__ != 'NewId' else 0,
             'request_type': request_type,
             'params': json.dumps(params, indent=4) if params else False,
             'headers': json.dumps(headers, indent=4),
@@ -159,7 +159,7 @@ class EmbatAccount(models.Model):
         self.env['embat.api.log'].create({
             'name': url,
             'model': model._name,
-            'res_id': model.id if isinstance(model.id, int) else 0,
+            'res_id': model.id if isinstance(model.id, int) and type(model.id).__name__ != 'NewId' else 0,
             'request_type': request_type,
             'params': json.dumps(params, indent=4) if params else False,
             'headers': json.dumps(headers, indent=4),
