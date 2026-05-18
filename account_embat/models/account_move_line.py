@@ -135,7 +135,7 @@ class AccountMoveLine(models.Model):
         res = super(AccountMoveLine, self).create(vals_list)
         if self.env.company.use_embat:
             for line in res:
-                if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
+                if line.journal_id and line.journal_id.embat_id and line.account_id.user_type_id.type in ['liquidity']:
                     line._load_embat_move_line_asset()
         return res
 
@@ -144,7 +144,7 @@ class AccountMoveLine(models.Model):
         res = super(AccountMoveLine, self).write(vals)
         if self.env.company.use_embat and 'embat_id' not in vals:
             for line in self:
-                if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
+                if line.journal_id and line.journal_id.embat_id and line.account_id.user_type_id.type in ['liquidity']:
                     line._load_embat_move_line_asset()
         return res
 
@@ -152,6 +152,6 @@ class AccountMoveLine(models.Model):
         """Override unlink method to delete Embat move line if it exists."""
         if self.env.company.use_embat:
             for line in self:
-                if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
+                if line.journal_id and line.journal_id.embat_id and line.account_id.user_type_id.type in ['liquidity']:
                     line._delete_embat_move_line_asset()
         return super(AccountMoveLine, self).unlink()

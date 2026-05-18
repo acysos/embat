@@ -130,8 +130,8 @@ class EmbatAccount(models.Model):
 
                         # Force update of lines to send transactionId
                         payment_lines = move_payment.line_ids.filtered(
-                            lambda line: line.account_id.account_type in
-                            ['asset_cash'] and line.journal_id.embat_id)
+                            lambda line: line.account_id.user_type_id.type in
+                            ['liquidity'] and line.journal_id.embat_id)
                         payment_lines._load_embat_move_line_asset()
 
                         self.reconciliate_payment_embat(
@@ -231,11 +231,11 @@ class EmbatAccount(models.Model):
     def reconciliate_payment_embat(self, payment, move, journal, company, date):
         lines_to_reconcile = self.env['account.move.line']
         payment_lines = payment.line_ids.filtered(
-            lambda l: l.account_id.account_type in
-            ('asset_receivable', 'liability_payable'))
+            lambda l: l.account_id.user_type_id.type in
+            ('receivable', 'payable'))
         move_lines = move.line_ids.filtered(
-            lambda l: l.account_id.account_type in
-            ('asset_receivable', 'liability_payable'))
+            lambda l: l.account_id.user_type_id.type in
+            ('receivable', 'payable'))
         lines_to_reconcile += payment_lines
         lines_to_reconcile += move_lines
         try:

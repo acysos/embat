@@ -19,7 +19,7 @@ class TestEmbatTransactionRetrieval(TransactionCase):
         self.account = self.env["account.account"].create({
             "name": "Test Account",
             "code": "123456",
-            "account_type": "asset_cash",
+            "user_type_id": self.env.ref('account.data_account_type_liquidity').id,
             "company_id": self.company.id,
         })
 
@@ -98,7 +98,7 @@ class TestEmbatTransactionRetrieval(TransactionCase):
         account = self.env['account.account'].create({
             'name': 'Bank Account',
             'code': '572000',
-            'account_type': 'asset_cash',
+            'user_type_id': self.env.ref('account.data_account_type_liquidity').id,
             'reconcile': True,
         })
         

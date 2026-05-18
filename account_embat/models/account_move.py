@@ -145,6 +145,6 @@ class AccountMove(models.Model):
                 if move.journal_id and move.journal_id.embat_id and move.move_type in ['out_invoice', 'in_refund', 'out_receipt', 'in_invoice', 'in_receipt', 'out_refund']:
                     move._load_embat_move_operation()
                 for line in move.line_ids:
-                    if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
+                    if line.journal_id and line.journal_id.embat_id and line.account_id.user_type_id.type in ['liquidity']:
                         line._load_embat_move_line_asset()
         return res

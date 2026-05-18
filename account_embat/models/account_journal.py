@@ -81,7 +81,7 @@ class AccountJournal(models.Model):
         for journal in self:
             if journal.type in ['bank'] and journal.embat_id:
                 move_lines = self.env['account.move.line'].search([('journal_id', '=', journal.id)])
-                for line in move_lines.filtered(lambda l: l.account_id.account_type in ['asset_cash']):
+                for line in move_lines.filtered(lambda l: l.account_id.user_type_id.type in ['liquidity']):
                     line._load_embat_move_line_asset()
 
     def update_account_moves_operation(self):

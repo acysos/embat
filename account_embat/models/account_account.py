@@ -20,7 +20,7 @@ class AccountAccount(models.Model):
                 raise UserError(_("Please configure the Embat data first."))
             data = {
                 "action": True,
-                "type": "banks" if account.account_type == 'asset_cash' else "accountings",
+                "type": "banks" if account.user_type_id.type == 'liquidity' else "accountings",
                 "accountingName": account.name,
                 "collective": True,
                 "additionalInfo": {},
