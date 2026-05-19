@@ -54,8 +54,9 @@ class OnlineBankStatementProviderEmbat(models.Model):
             acc_number = self.account_number.lower() or False
             if acc_number:
                 for bank in content["data"]:
-                    for bankproduct in bank["bankProducts"]:
-                        accountnumber = bankproduct["accountNumber"].lower()
+                    for bankproduct in bank.get("bankProducts", []):
+                        accountnumber = bankproduct.get("accountNumber")
+                        accountnumber = accountnumber.lower() if accountnumber else ""
                         if accountnumber == acc_number:
                             self.embat_account_bank_id = bankproduct["id"]
                     if not self.embat_account_bank_id:
