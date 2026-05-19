@@ -24,6 +24,7 @@
                                 <div class="mt16" attrs="{'invisible': [('embat_data_id', '=', False)]}">
                                     <button name="load_accounts" type="object" string="Load Accounts" class="btn-secondary" icon="fa-refresh" title="Load accounts to Embat"/>
                                     <button name="load_analytic_accounts" type="object" string="Load Analytics Accounts" class="btn-secondary" icon="fa-refresh" title="Load analytics accounts to Embat"/>
+                                    <button name="load_pending_invoices" type="object" string="Load Pending Invoices" class="btn-secondary" icon="fa-refresh" title="Load pending invoices to Embat"/>
                                 </div>
                             </div>
                         </div>
