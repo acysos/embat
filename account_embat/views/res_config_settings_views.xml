@@ -27,6 +27,9 @@
                             <button name="load_analytic_accounts" type="object" string="Load Analytics Accounts" class="btn-secondary ps-2 w-100" icon="fa-refresh"
                                     title="Load analytics accounts to Embat"
                                     invisible="not use_embat or not embat_data_id"/>
+                            <button name="load_pending_invoices" type="object" string="Load Pending Invoices" class="btn-secondary ps-2 w-100" icon="fa-refresh"
+                                    title="Load pending invoices to Embat"
+                                    invisible="not use_embat or not embat_data_id"/>
                         </div>
                     </setting>
                 </block>
