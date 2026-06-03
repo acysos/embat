@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_embat_api_log_tree" model="ir.ui.view">
+        <field name="name">embat.api.log.tree</field>
+        <field name="model">embat.api.log</field>
+        <field name="arch" type="xml">
+            <tree string="Embat API Logs" create="false" edit="false" delete="false">
+                <field name="create_date" />
+                <field name="name" />
+                <field name="model" />
+                <field name="res_id" />
+                <field name="request_type" />
+            </tree>
+        </field>
+    </record>
+
+    <record id="view_embat_api_log_form" model="ir.ui.view">
+        <field name="name">embat.api.log.form</field>
+        <field name="model">embat.api.log</field>
+        <field name="arch" type="xml">
+            <form string="Embat API Log" create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="create_date" readonly="1"/>
+                            <field name="name" readonly="1"/>
+                            <field name="model" readonly="1"/>
+                            <field name="res_id" readonly="1"/>
+                            <field name="request_type" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Parameters">
+                            <field name="params" readonly="1" widget="ace" />
+                        </page>
+                        <page string="Headers">
+                            <field name="headers" readonly="1" widget="ace" />
+                        </page>
+                        <page string="Data (JSON)">
+                            <field name="data" readonly="1" widget="ace" />
+                        </page>
+                        <page string="Response">
+                            <field name="response" readonly="1" widget="ace" />
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_embat_api_log" model="ir.actions.act_window">
+        <field name="name">Embat API Logs</field>
+        <field name="res_model">embat.api.log</field>
+        <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No logs found
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_embat_api_log" name="API Logs" parent="menu_embat_config_root" action="action_embat_api_log" sequence="11" groups="base.group_system" />
+</odoo>

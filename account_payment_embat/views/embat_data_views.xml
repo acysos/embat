@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+    Copyright (C) 2025 Acysos S.L. (https://www.acysos.com)
+    Licencia AGPL-3.0 o posterior (https://www.gnu.org/licenses/agpl-3.0.html).
+-->
+<odoo>
+    <record id="view_embat_data_form_inherit_account_payment_embat" model="ir.ui.view">
+        <field name="name">embat.data.form.inherit.account_payment_embat</field>
+        <field name="model">embat.data</field>
+        <field name="inherit_id" ref="base_embat.view_embat_data_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//button[@name='sync_partners']" position="after">
+                <field name="default_payment_account" />
+                <button
+                    name="reconcile_payments_embat"
+                    type="object"
+                    string="Reconcile Payments"
+                    class="btn btn-secondary"
+                    colspan="2"
+                    invisible="not embat_company_id"
+                />
+            </xpath>
+        </field>
+    </record>
+</odoo>

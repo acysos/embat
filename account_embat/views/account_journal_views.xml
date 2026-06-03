@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <record id="view_account_journal_form_inherit_embat" model="ir.ui.view">
+        <field name="name">account.journal.form.inherit.embat</field>
+        <field name="model">account.journal</field>
+        <field name="inherit_id" ref="account.view_account_journal_form"/>
+        <field name="arch" type="xml">
+            <page name="bank_account" position="inside">
+                <group name="embat" string="Embat" invisible="not company_id.use_embat or type not in ['bank', 'sale', 'purchase']">
+                    <field name="bank_account_id" string="Account Number" context="{'default_partner_id': company_partner_id}" invisible="type not in ['sale', 'purchase']"/>
+                    <field name="embat_id" readonly="1"/>
+                    <button name="update_product_embat" colspan="2"
+                            type="object"
+                            string="Update Product Embat"
+                            class="btn btn-secondary"/>
+                    <button name="update_account_move_lines_asset" colspan="2"
+                            type="object"
+                            string="Update Account Move Lines Asset"
+                            class="btn btn-secondary"
+                            invisible="type not in ['bank']"/>
+                    <button name="update_account_moves_operation" colspan="2"
+                            type="object"
+                            string="Update Account Move Operation"
+                            class="btn btn-secondary"
+                            invisible="type not in ['sale', 'purchase']"/>
+                </group>
+            </page>
+        </field>
+    </record>
+</odoo>

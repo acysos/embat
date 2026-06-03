@@ -1,0 +1,40 @@
+<odoo>
+    <record id="view_account_embat_res_config_settings" model="ir.ui.view">
+        <field name="name">res.config.settings.account.embat.form</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="account.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//block[@id='storno']" position="after">
+<!--                <div class="app_settings_block" data-string="Embat">
+                    <h2>Embat</h2>
+                    <setting id="use_embat" company_dependent="1" string="Use Embat" help="Enable or disable the use of Embat for accounting.">
+                        <field name="use_embat" class="oe_inline"/>
+                        <div class="content-group" invisible="not use_embat">
+                            <div class="mt16">
+                                <field name="embat_data_id" class="oe_inline" placeholder="Embat Data ID" required="use_embat"/>
+                            </div>
+                        </div>
+                    </setting>
+                </div>-->
+                <block title="Embat Accounting" id="embat">
+                    <setting id="enable_embat_accounting" company_dependent="1" help="Use Embat accounting" title="Allows you to use Embat accounting.">
+                        <field name="use_embat"/>
+                        <field name="embat_data_id" placeholder="Embat Data ID" required="use_embat" invisible="not use_embat"/>
+                        <div class="mt16" invisible="not use_embat or not embat_data_id">
+                            <button name="load_accounts" type="object" string="Load Accounts" class="btn-secondary ps-2 w-100" icon="fa-refresh"
+                                    title="Load accounts to Embat"
+                                    invisible="not use_embat or not embat_data_id"/>
+                            <button name="load_analytic_accounts" type="object" string="Load Analytics Accounts" class="btn-secondary ps-2 w-100" icon="fa-refresh"
+                                    title="Load analytics accounts to Embat"
+                                    invisible="not use_embat or not embat_data_id"/>
+                            <button name="load_pending_invoices" type="object" string="Load Pending Invoices" class="btn-secondary ps-2 w-100" icon="fa-refresh"
+                                    title="Load pending invoices to Embat"
+                                    invisible="not use_embat or not embat_data_id"/>
+                        </div>
+                    </setting>
+                </block>
+            </xpath>
+        </field>
+    </record>
+</odoo>
+
