@@ -29,7 +29,7 @@ class ResPartner(models.Model):
 
     def _load_embat_partner(self):
         if self.env.company.use_embat:
-            for partner in self:
+            for partner in self.filtered(lambda p: p.is_company):
                 embat_data = partner.env.company.embat_data_id
                 if not embat_data:
                     raise UserError(_("Please configure the Embat data first."))
