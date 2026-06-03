@@ -195,7 +195,7 @@ class EmbatAccount(models.Model):
 
     def sync_partners(self):
         self.ensure_one()
-        partners = self.env["res.partner"].search([("is_company", "=", True)])
+        partners = self.env["res.partner"].search([])
         partners._load_embat_partner()
         return True
 

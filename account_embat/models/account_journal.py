@@ -84,5 +84,13 @@ class AccountJournal(models.Model):
         for journal in self:
             if journal.type in ['sale', 'purchase'] and journal.embat_id:
                 moves = self.env['account.move'].search([('journal_id', '=', journal.id)])
-                for move in moves.filtered(lambda m: m.move_type in ['out_invoice', 'in_refund', 'out_receipt', 'in_invoice', 'in_receipt', 'out_refund']):
-                    move._load_embat_move_operation()
+                valid_types = [
+                    'out_invoice', 'in_refund', 'out_receipt',
+                    'in_invoice', 'in_receipt', 'out_refund'
+                ]
+                valid_states = ['not_paid', 'partial']
+                for move in moves.filtered(
+                    lambda m: m.move_type in valid_types
+                    and m.payment_state in valid_states
+                ):
+                        move._load_embat_move_operation()
