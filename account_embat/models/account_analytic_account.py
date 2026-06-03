@@ -24,7 +24,12 @@ class AccountAnalyticAccount(models.Model):
                 "active": True,
                 "name": account.name,
                 "type": "list",
-                "values": [],
+                "values": [
+                    {
+                        "customId": str(account.id),
+                        "name": account.name,
+                    }
+                ],
             }
             if account.embat_id:
                 endpoint = "attributes/" + embat_data.embat_company_id + "/" + str(account.id)

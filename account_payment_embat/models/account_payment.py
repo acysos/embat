@@ -125,7 +125,7 @@ class AccountPayment(models.Model):
                 if content and "id" in content:
                     self.embat_id = content["id"]
                     msg = _("Payment synced with Embat: %s") % self.embat_id
-                    embat_data._create_log("INFO", "PAYMENT_SYNC", msg, self)
+                    embat_data._create_log("INFO", "PAYMENTS_INFO", msg, self)
                     
                     # Fetch transactionID
                     try:
@@ -152,7 +152,7 @@ class AccountPayment(models.Model):
                     move = payment_line.move_line_id.move_id
                     if not move.embat_id:
                         continue
-                    endpoint = f"operations/{embat_data.embat_company_id}/{move.embat_id}"
+                    endpoint = f"operations/{embat_data.embat_company_id}/account.move-{move.id}"
                     request_type = "patch"
                     move_data = self._prepare_embat_operation_data(move)
                     try:
