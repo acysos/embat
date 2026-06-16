@@ -1,7 +1,20 @@
 # Copyright 2025 Acysos S.L. (https://www.acysos.com)
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
+import logging
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+
+_logger = logging.getLogger(__name__)
+
+try:
+    from odoo.addons.queue_job.job import job
+except ImportError:
+    _logger.debug('Can not `import queue_job`.')
+    import functools
+
+    def empty_decorator_factory(*argv, **kwargs):
+        return functools.partial
+    job = empty_decorator_factory
 
 
 class ResPartner(models.Model):
@@ -27,6 +40,7 @@ class ResPartner(models.Model):
             ]
             record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
 
+    @job
     def _load_embat_partner(self):
         if self.env.company.use_embat:
             for partner in self.filtered(lambda p: p.is_company):

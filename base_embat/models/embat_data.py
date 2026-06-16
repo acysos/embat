@@ -13,7 +13,15 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
+try:
+    from odoo.addons.queue_job.job import job
+except ImportError:
+    _logger.debug('Can not `import queue_job`.')
+    import functools
 
+    def empty_decorator_factory(*argv, **kwargs):
+        return functools.partial
+    job = empty_decorator_factory
 
 class EmbatAccount(models.Model):
     _name = "embat.data"
