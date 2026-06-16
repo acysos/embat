@@ -195,8 +195,11 @@ class EmbatAccount(models.Model):
 
     def sync_partners(self):
         self.ensure_one()
-        partners = self.env["res.partner"].search([])
-        partners._load_embat_partner()
+        partner_ids = self.env["res.partner"].search([("is_company", "=", True)]).ids
+        batch_size = 100
+        for i in range(0, len(partner_ids), batch_size):
+            batch = self.env["res.partner"].browse(partner_ids[i:i + batch_size])
+            batch.with_company(self.company_id).with_delay()._load_embat_partner()
         return True
 
     def _create_log(self, level, code, message, model):
