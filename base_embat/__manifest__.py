@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 {
     "name": "Base Embat",
-    "version": "17.0.1.0.1",
+    "version": "17.0.1.0.2",
     "category": "Account",
     "website": "https://github.com/OCA/server-tools",
     "author": "Acysos S.L., Odoo Community Association (OCA)",
