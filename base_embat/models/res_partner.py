@@ -34,6 +34,23 @@ class ResPartner(models.Model):
                 if not embat_data:
                     raise UserError(_("Please configure the Embat data first."))
 
+                payments_accounts = []
+                company_currency = self.env.company.currency_id.name or 'EUR'
+                for bank in partner.bank_ids.filtered('sanitized_acc_number'):
+                    details = {"iban": bank.sanitized_acc_number}
+                    if bank.bank_id and bank.bank_id.bic:
+                        details["bic"] = bank.bank_id.bic
+                        details["swift"] = bank.bank_id.bic
+                    if bank.bank_id and bank.bank_id.country:
+                        details["bankCountryCode"] = bank.bank_id.country.code
+                    
+                    account_data = {
+                        "default": False,
+                        "details": details,
+                        "currency": bank.currency_id.name if bank.currency_id else company_currency,
+                    }
+                    payments_accounts.append(account_data)
+
                 data = {
                     "tradeName": partner.name,
                     "legalName": partner.name,
@@ -54,8 +71,7 @@ class ResPartner(models.Model):
                     },
                     "contactType": "company" if partner.company_type == "company" else "freelance",
                     "type": "client-supplier",
-                    "accounts": [
-                    ],
+                    "paymentsAccounts": payments_accounts,
                     "additionalInfo": {},
                     "attributes": [
                     ],
