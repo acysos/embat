@@ -107,7 +107,7 @@ class AccountMove(models.Model):
 
                 data = move._prepare_embat_move_data(status, embat_type)
                 if move.embat_id:
-                    endpoint = "operations/" + embat_data.embat_company_id + "/" + move.embat_id
+                    endpoint = "operations/" + embat_data.embat_company_id + "/" + str(move._name) + "-" + str(move.id)
                     request_type = "patch"
                 else:
                     endpoint = "operations/" + embat_data.embat_company_id
@@ -128,7 +128,7 @@ class AccountMove(models.Model):
                 embat_data = move.env.company.embat_data_id
                 if not embat_data:
                     raise UserError(_("Please configure the Embat data first."))
-                endpoint = "operations/" + embat_data.embat_company_id + "/" + str(move.embat_id)
+                endpoint = "operations/" + embat_data.embat_company_id + "/" + str(move._name) + "-" + str(move.id)
                 response, content = embat_data._embat_request(endpoint, move, request_type="delete")
                 if response.status_code != 200:
                     message = _("Could not delete the move line in Embat: %s") % (response)

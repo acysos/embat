@@ -162,3 +162,83 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             # Verify GET call
             args, _ = mock_get.call_args
             self.assertIn("accountingentries/comp_123/entry_456", args[0])
+
+    def test_get_payment_contacts(self):
+        """Test retrieving payments of type contacts creates the payment in Odoo."""
+        # Create a partner/contact
+        partner = self.env["res.partner"].create({
+            "name": "Contact Test",
+            "is_company": True,
+            "embat_id": "contact_embat_123",
+        })
+
+        # Create a bank journal with embat_id
+        journal = self.env['account.journal'].create({
+            'name': 'Bank Contact Journal', 
+            'type': 'bank', 
+            'code': 'BNKC',
+            'embat_id': 'product_embat_123',
+        })
+
+        payment_payload = {
+            "type": "contacts",
+            "productId": "product_embat_123",
+            "contactCustomId": str(partner.id),
+            "amount": -150.0,
+            "accountingAmount": -150.0,
+            "concept": "Embat Contact Payment",
+            "transactionId": "txn_contact_999",
+            "customId": "pay_contact_custom_123",
+            "date": "2024-02-01T12:00:00Z"
+        }
+
+        # Mock Embat API patch request inside get_payment_contacts
+        with patch('requests.patch') as mock_patch, \
+             patch('requests.post') as mock_post, \
+             patch('requests.get') as mock_get:
+            
+            # Setup GET response (for _load_embat_move_line_asset transaction retrieval)
+            mock_get_response = MagicMock()
+            mock_get_response.ok = True
+            mock_get_response.status_code = 200
+            mock_get_response.text = '{"data": {"transactionsIds": ["txn_contact_999"]}}'
+            mock_get_response.json.return_value = {"data": {"transactionsIds": ["txn_contact_999"]}}
+            mock_get.return_value = mock_get_response
+
+            # Setup POST response (for _load_embat_move_line_asset entry creation)
+            mock_post_response = MagicMock()
+            mock_post_response.ok = True
+            mock_post_response.status_code = 200
+            mock_post_response.text = '{"id": "entry_999"}'
+            mock_post_response.json.return_value = {"id": "entry_999"}
+            mock_post.return_value = mock_post_response
+
+            # Setup PATCH response (for mark_as_sync patch call)
+            mock_patch_response = MagicMock()
+            mock_patch_response.ok = True
+            mock_patch_response.status_code = 200
+            mock_patch_response.text = '{"status": "success"}'
+            mock_patch_response.json.return_value = {"status": "success"}
+            mock_patch.return_value = mock_patch_response
+
+            self.company.use_embat = True
+            
+            # Call get_payment_contacts
+            self.embat_data.get_payment_contacts(payment_payload, self.company)
+
+            # Search for the created payment
+            odoo_payment = self.env["account.payment"].search([
+                ("embat_id", "=", "txn_contact_999")
+            ])
+            self.assertTrue(odoo_payment, "Payment should be created in Odoo")
+            self.assertEqual(odoo_payment.amount, 150.0)
+            self.assertEqual(odoo_payment.partner_id, partner)
+            self.assertEqual(odoo_payment.payment_type, "outbound")
+            self.assertEqual(odoo_payment.state, "posted")
+            
+            # Verify the bank statement line was created and validated/reconciled
+            st_line = self.env["account.bank.statement.line"].search([
+                ("payment_ref", "=", odoo_payment.name)
+            ])
+            self.assertTrue(st_line, "Bank statement line should be created")
+            self.assertEqual(st_line.is_reconciled, True)
