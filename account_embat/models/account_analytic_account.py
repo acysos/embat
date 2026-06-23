@@ -68,7 +68,7 @@ class AccountAnalyticAccount(models.Model):
             raise UserError(_("Please configure the Embat data first."))
         for account in self:
             if account.embat_id:
-                endpoint = "attributes/" + embat_data.embat_company_id + "/" + account.embat_id
+                endpoint = "attributes/" + embat_data.embat_company_id + "/" + str(account.id)
                 response, content = embat_data._embat_request(endpoint, account, request_type="delete")
                 if response.status_code not in [200, 204]:
                     message = _("Could not delete the analytic account in Embat: %s") % (response)
