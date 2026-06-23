@@ -221,6 +221,112 @@ class EmbatAccount(models.Model):
 
     def get_payment_contacts(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT CONTACTS: %s", payment)
+        partner = False
+        partner_id_str = payment.get("contactCustomId")
+        if partner_id_str:
+            try:
+                partner = self.env["res.partner"].browse(int(partner_id_str))
+                if not partner.exists():
+                    partner = False
+            except ValueError:
+                partner = False
+
+        if not partner and payment.get("contact"):
+            contact_data = payment["contact"]
+            custom_id = contact_data.get("customId")
+            if custom_id:
+                try:
+                    partner = self.env["res.partner"].browse(int(custom_id))
+                    if not partner.exists():
+                        partner = False
+                except ValueError:
+                    partner = False
+            if not partner and contact_data.get("id"):
+                partner = self.env["res.partner"].search([("embat_id", "=", contact_data["id"])], limit=1)
+            if not partner and contact_data.get("taxId"):
+                partner = self.env["res.partner"].search([("vat", "=", contact_data["taxId"])], limit=1)
+
+        if not partner:
+            message = _("Contact not found for Embat payment: %s") % payment.get("id")
+            company.sudo().message_post(body=message)
+            return
+
+        journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
+        if not journal:
+            message = _("Journal not found for Embat ProductId: %s") % payment["productId"]
+            company.sudo().message_post(body=message)
+            return
+
+        date = fields.Date.today()
+        if "date" in payment and payment["date"]:
+            date = payment["date"].split("T")[0]
+
+        amount = payment.get("accountingAmount") or payment.get("amount") or 0
+        if not amount:
+            return
+
+        payment_type = "inbound" if amount > 0 else "outbound"
+        partner_type = "customer" if amount > 0 else "supplier"
+        destination_account = partner.property_account_receivable_id if payment_type == "inbound" else partner.property_account_payable_id
+
+        payment_vals = {
+            "payment_type": payment_type,
+            "partner_type": partner_type,
+            "partner_id": partner.id,
+            "amount": abs(amount),
+            "journal_id": journal.id,
+            "date": date,
+            "ref": payment.get("concept") or "",
+            "embat_id": payment["transactionId"],
+            "embat_transaction_id": payment["transactionId"],
+            "destination_account_id": destination_account.id,
+        }
+
+        move_payment = self.env["account.payment"].create(payment_vals)
+        move_payment.action_post()
+
+        # Force update of lines to send transactionId
+        payment_lines = move_payment.line_ids.filtered(
+            lambda line: line.account_id.user_type_id.type in ['liquidity'] and line.journal_id.embat_id
+        )
+        payment_lines._load_embat_move_line_asset()
+
+        # Reconcile against bank statement line
+        try:
+            if payment_type == "inbound":
+                reconcile_account_id = journal.company_id.account_journal_payment_debit_account_id
+                sign = 1
+            else:
+                reconcile_account_id = journal.company_id.account_journal_payment_credit_account_id
+                sign = -1
+
+            st_line = self.env["account.bank.statement"].create({
+                "name": payment.get("concept") or move_payment.name,
+                "journal_id": journal.id,
+                "company_id": company.id,
+                "date": date,
+                "line_ids": [(0, 0, {
+                    "date": date,
+                    "payment_ref": move_payment.name,
+                    "partner_id": partner.id,
+                    "amount": move_payment.amount * sign
+                })],
+            })
+            st_line.button_post()
+
+            counterpart_line = move_payment.line_ids.filtered(
+                lambda line: line.account_id.id == reconcile_account_id.id)
+            test_st_line_1 = st_line.line_ids.filtered(
+                lambda line: line.payment_ref == move_payment.name)
+            test_st_line_1.reconcile([{"id": counterpart_line.id}])
+
+            st_line.button_validate_or_action()
+        except Exception as e:
+            message = _("Cannot update EMBAT Payment because: %s") % (e)
+            self.sudo().message_post(body=message)
+
+        # Mark payment as synchronized in Embat
+        self.mark_as_sync(payment["customId"])
 
     def mark_as_sync(self, customid):
         endpoint = "payments/" + self.embat_company_id + "/" + customid
