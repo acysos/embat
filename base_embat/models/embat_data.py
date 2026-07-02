@@ -153,7 +153,14 @@ class EmbatAccount(models.Model):
         _logger.info(json.dumps(log_vals, indent=4))
         self.env['embat.api.log'].create(log_vals)
 
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            if request_type == "patch" and response.status_code == 404:
+                new_endpoint = endpoint.rsplit('/', 1)[0]
+                _logger.warning("Resource not found (404) during PATCH on %s. Retrying as POST on %s", endpoint, new_endpoint)
+                return self._embat_request(new_endpoint, model, request_type="post", params=params, data=data)
+            raise e
         if response.status_code == 204:
             return response, content
         try:
