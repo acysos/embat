@@ -6,15 +6,7 @@ from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
 
-try:
-    from odoo.addons.queue_job.job import job
-except ImportError:
-    _logger.debug('Can not `import queue_job`.')
-    import functools
 
-    def empty_decorator_factory(*argv, **kwargs):
-        return functools.partial
-    job = empty_decorator_factory
 
 
 class ResPartner(models.Model):
@@ -40,7 +32,6 @@ class ResPartner(models.Model):
             ]
             record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
 
-    @job
     def _load_embat_partner(self):
         if self.env.company.use_embat:
             for partner in self.filtered(lambda p: p.is_company):
@@ -131,16 +122,19 @@ class ResPartner(models.Model):
     def create(self, vals_list):
         res = super().create(vals_list)
         if self.env.company.use_embat:
-            res._load_embat_partner()
+            for record in res:
+                record.with_delay()._load_embat_partner()
         return res
 
     def write(self, vals):
         res = super().write(vals)
         if self.env.company.use_embat and 'embat_id' not in vals:
-            self._load_embat_partner()
+            for record in self:
+                record.with_delay()._load_embat_partner()
         return res
 
     def unlink(self):
         if self.env.company.use_embat:
-            self._delete_embat_partner()
+            for record in self:
+                record.with_delay()._delete_embat_partner()
         return super().unlink()

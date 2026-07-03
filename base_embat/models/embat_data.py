@@ -13,15 +13,7 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
-try:
-    from odoo.addons.queue_job.job import job
-except ImportError:
-    _logger.debug('Can not `import queue_job`.')
-    import functools
 
-    def empty_decorator_factory(*argv, **kwargs):
-        return functools.partial
-    job = empty_decorator_factory
 
 class EmbatAccount(models.Model):
     _name = "embat.data"
@@ -210,11 +202,9 @@ class EmbatAccount(models.Model):
 
     def sync_partners(self):
         self.ensure_one()
-        partner_ids = self.env["res.partner"].search([("is_company", "=", True)]).ids
-        batch_size = 100
-        for i in range(0, len(partner_ids), batch_size):
-            batch = self.env["res.partner"].browse(partner_ids[i:i + batch_size])
-            batch.with_company(self.company_id).with_delay()._load_embat_partner()
+        partners = self.env["res.partner"].search([("is_company", "=", True)])
+        for partner in partners:
+            partner.with_company(self.company_id).with_delay()._load_embat_partner()
         return True
 
     def _create_log(self, level, code, message, model):
