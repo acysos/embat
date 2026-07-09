@@ -7,11 +7,11 @@
         <field name="name">embat.company.wizard.tree</field>
         <field name="model">embat.company.wizard</field>
         <field name="arch" type="xml">
-            <tree create="false" edit="false" delete="false">
+            <list create="false" edit="false" delete="false">
                 <field name="name"/>
                 <field name="embat_id"/>
                 <button name="action_select_company" type="object" string="Select" class="oe_highlight"/>
-            </tree>
+            </list>
         </field>
     </record>
 </odoo>
