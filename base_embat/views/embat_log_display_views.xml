@@ -9,12 +9,12 @@
             <notebook position="inside">
                 <page string="Embat API Logs" groups="base.group_system">
                     <field name="embat_api_log_ids" readonly="1">
-                        <tree create="false" edit="false" delete="false">
+                        <list create="false" edit="false" delete="false">
                             <field name="create_date" />
                             <field name="name" />
                             <field name="request_type" />
                             <field name="response" />
-                        </tree>
+                        </list>
                     </field>
                 </page>
             </notebook>
