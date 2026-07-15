@@ -179,7 +179,7 @@ class EmbatAccount(models.Model):
 
     def get_payment_accounting(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT ACCOUNTING: %s", payment)
-        account_debit_id = self.env["account.account"].search([("code", "=", payment["accountingCode"])])
+        account_debit_id = self.env["account.account"].search([("code", "=", payment["accountingCode"]), ("company_ids", "in", company.id)], limit=1)
         if not account_debit_id:
             account_id = self.default_payment_account
         journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
