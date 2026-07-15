@@ -20,7 +20,7 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             "name": "Test Account",
             "code": "123456",
             "account_type": "asset_cash",
-            "company_id": self.company.id,
+            "company_ids": [(4, self.company.id)],
         })
 
         # Create a dummy Embat Data record
