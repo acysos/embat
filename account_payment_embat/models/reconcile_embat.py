@@ -53,6 +53,31 @@ class EmbatAccount(models.Model):
                     datetime.datetime.now().strftime(EMBAT_DATE_FORMAT))
                 embat_data._create_log("INFO", "PAYMENTS_INFO", message, embat_data)
 
+    def _parse_analytic_distribution(self, payment, company):
+        analytic_distribution = {}
+        if payment.get("attributes"):
+            for attr in payment.get("attributes"):
+                val_id = attr.get("customId")
+                if not val_id:
+                    name = attr.get("name")
+                    if name:
+                        account = self.env["account.analytic.account"].search([
+                            ("name", "=", name),
+                            "|", ("company_id", "=", company.id), ("company_id", "=", False)
+                        ], limit=1)
+                        if not account:
+                            account = self.env["account.analytic.account"].create({
+                                "name": name,
+                                "company_id": company.id,
+                            })
+                        val_id = account.id
+                if val_id:
+                    try:
+                        analytic_distribution[str(int(val_id))] = 100.0
+                    except (ValueError, TypeError):
+                        pass
+        return analytic_distribution
+
     def get_payment_operation(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT OPERATION: %s", payment)
         move_env = self.env["account.move"]
@@ -65,6 +90,8 @@ class EmbatAccount(models.Model):
                 body=message
             )
             return
+
+        analytic_distribution = self._parse_analytic_distribution(payment, company)
 
         for operation in payment["operations"]:
             move = move_env.search([("id", "=", int(operation["customId"].split("-")[1]))])
@@ -84,6 +111,8 @@ class EmbatAccount(models.Model):
                     lambda m: move.id in m.reconciled_invoice_ids.ids)
 
                 for payment_id in payments_ids:
+                    if analytic_distribution:
+                        payment_id.line_ids.write({'analytic_distribution': analytic_distribution})
                     self.reconcile_payment(
                         payment_id, move, payment.journal_id, company.id, date)
                     self.mark_as_sync(operation["customId"])
@@ -94,6 +123,8 @@ class EmbatAccount(models.Model):
                     ("ref", "=", move.name),
                 ])
                 if move_payment:
+                    if analytic_distribution:
+                        move_payment.line_ids.write({'analytic_distribution': analytic_distribution})
 
                     move_payment.embat_id = payment["transactionId"]
                     if move.embat_transaction_id and payment["transactionId"] not in move.embat_transaction_id.split(","):
@@ -123,6 +154,9 @@ class EmbatAccount(models.Model):
                             active_model="account.move",
                             active_ids=move.ids
                         ).create(payment_vals)._create_payments()
+
+                        if analytic_distribution:
+                            move_payment.line_ids.write({'analytic_distribution': analytic_distribution})
 
                         move_payment.embat_id = payment["transactionId"]
                         move_payment.embat_transaction_id = (
@@ -161,6 +195,9 @@ class EmbatAccount(models.Model):
             date = fields.Date.today()
             if "date" in payment and payment["date"]:
                 date = payment["date"].split("T")[0]
+
+            analytic_distribution = self._parse_analytic_distribution(payment, company)
+
             move_vals = {
                 "move_type": "entry",
                 "ref": payment["concept"],
@@ -186,7 +223,8 @@ class EmbatAccount(models.Model):
                         "account_id": account_credit_id.id,
                         "credit": amount * -1 if amount < 0 else 0,
                         "debit": amount if amount > 0 else 0,
-                        "currency_id": currency_id
+                        "currency_id": currency_id,
+                        "analytic_distribution": analytic_distribution,
                     }))
                     move_vals["line_ids"].append((0, 0, {
                         "name": concept,
@@ -194,7 +232,8 @@ class EmbatAccount(models.Model):
                         "account_id": account_debit_id.id,
                         "credit": amount if amount > 0 else 0,
                         "debit": amount * -1 if amount < 0 else 0,
-                        "currency_id": currency_id
+                        "currency_id": currency_id,
+                        "analytic_distribution": analytic_distribution,
                     }))
             else:
                 amount = payment.get("accountingAmount", 0)
@@ -204,7 +243,8 @@ class EmbatAccount(models.Model):
                     "account_id": account_credit_id.id,
                     "credit": amount * -1 if amount < 0 else 0,
                     "debit": amount if amount > 0 else 0,
-                    "currency_id": currency_id
+                    "currency_id": currency_id,
+                    "analytic_distribution": analytic_distribution,
                 }))
                 move_vals["line_ids"].append((0, 0, {
                     "name": payment["concept"],
@@ -212,7 +252,8 @@ class EmbatAccount(models.Model):
                     "account_id": account_debit_id.id,
                     "credit": amount if amount > 0 else 0,
                     "debit": amount * -1 if amount < 0 else 0,
-                    "currency_id": currency_id
+                    "currency_id": currency_id,
+                    "analytic_distribution": analytic_distribution,
                 }))
 
             move_id = self.env["account.move"].create(move_vals)
@@ -221,6 +262,9 @@ class EmbatAccount(models.Model):
 
     def get_payment_contacts(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT CONTACTS: %s", payment)
+        
+        analytic_distribution = self._parse_analytic_distribution(payment, company)
+        
         partner = False
         partner_id_str = payment.get("contactCustomId")
         if partner_id_str:
@@ -283,6 +327,8 @@ class EmbatAccount(models.Model):
         }
 
         move_payment = self.env["account.payment"].create(payment_vals)
+        if analytic_distribution:
+            move_payment.line_ids.write({'analytic_distribution': analytic_distribution})
         move_payment.action_post()
 
         # Force update of lines to send transactionId

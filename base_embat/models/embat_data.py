@@ -195,7 +195,7 @@ class EmbatAccount(models.Model):
             "type": "ir.actions.act_window",
             "name": _("Select Embat Company"),
             "res_model": "embat.company.wizard",
-            "view_mode": "tree",
+            "view_mode": "list",
             "target": "new",
             "domain": [("embat_data_id", "=", self.id)],
         }

@@ -23,7 +23,7 @@ class ResConfigSettings(models.TransientModel):
         self.ensure_one()
         if not self.embat_data_id:
             raise UserError(_("Please configure the Embat data first."))
-        account_ids = self.env['account.account'].search([('company_id', '=', self.env.company.id)])
+        account_ids = self.env['account.account'].search([('company_ids', 'in', self.env.company.id)])
         if not account_ids:
             raise UserError(_("No accounts found for the current company."))
         account_ids._load_embat_account()
