@@ -59,8 +59,8 @@ class OnlineBankStatementProviderEmbat(models.Model):
                         accountnumber = accountnumber.lower() if accountnumber else ""
                         if accountnumber == acc_number:
                             self.embat_account_bank_id = bankproduct["id"]
-                    if not self.embat_account_bank_id:
-                        raise UserError(_("The bank was not found in Embat."))
+                if not self.embat_account_bank_id:
+                    raise UserError(_("The bank was not found in Embat."))
             else:
                 raise UserError(_("No bank account in journal"))
 
