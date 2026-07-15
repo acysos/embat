@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 {
     "name": "Account Reconcile: Embat",
-    "version": "14.0.1.0.2",
+    "version": "14.0.1.0.3",
     "category": "Account",
     "website": "https://github.com/OCA/account-reconcile",
     "author": "Acysos S.L., Odoo Community Association (OCA)",
