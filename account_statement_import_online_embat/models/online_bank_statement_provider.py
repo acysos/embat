@@ -4,7 +4,8 @@ from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 from odoo.tools import DEFAULT_SERVER_DATE_FORMAT as DF
 import datetime
-
+import logging
+_logger = logging.getLogger(__name__)
 
 EMBAT_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
@@ -52,15 +53,17 @@ class OnlineBankStatementProviderEmbat(models.Model):
             message = _("List of banks retrieved from Embat successfully.")
             self.embat_data_id._create_log("INFO", "INFO", message, self)
             acc_number = self.account_number.lower() or False
+            _logger.info("Account Number: %s", acc_number)
             if acc_number:
                 for bank in content["data"]:
                     for bankproduct in bank.get("bankProducts", []):
                         accountnumber = bankproduct.get("accountNumber")
                         accountnumber = accountnumber.lower() if accountnumber else ""
+                        _logger.info("Account Number 2: %s", accountnumber)
                         if accountnumber == acc_number:
                             self.embat_account_bank_id = bankproduct["id"]
-                    if not self.embat_account_bank_id:
-                        raise UserError(_("The bank was not found in Embat."))
+                if not self.embat_account_bank_id:
+                    raise UserError(_("The bank was not found in Embat."))
             else:
                 raise UserError(_("No bank account in journal"))
 
