@@ -2,6 +2,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+import json
 
 
 class ResPartner(models.Model):
@@ -79,7 +80,20 @@ class ResPartner(models.Model):
                 }
                 if not data["taxId"]:
                     data["taxId"] = ""
+                # Check if it was synced for this Embat company
+                synced_for_company = False
+                embat_id_dict = {}
                 if partner.embat_id:
+                    if partner.embat_id.startswith('{'):
+                        try:
+                            embat_id_dict = json.loads(partner.embat_id)
+                            synced_for_company = embat_data.embat_company_id in embat_id_dict
+                        except ValueError:
+                            pass
+                    else:
+                        synced_for_company = True # Legacy behavior
+
+                if synced_for_company:
                     endpoint = "contacts/" + embat_data.embat_company_id + "/" + str(partner.id)
                     request_type = "patch"
                 else:
@@ -91,8 +105,15 @@ class ResPartner(models.Model):
                     message = _("Error loading partner in Embat: %s") % (response)
                     embat_data._create_log("ERROR", "CONTACTS_ERROR", message, partner)
                     raise UserError(message)
-                partner.embat_id = content["id"]
-                message = _("Partner loaded in Embat with ID: %s") % (partner.embat_id)
+                
+                if not partner.embat_id or not partner.embat_id.startswith('{'):
+                    embat_id_dict = {}
+                    if partner.embat_id:
+                        embat_id_dict['legacy'] = partner.embat_id
+                
+                embat_id_dict[embat_data.embat_company_id] = content["id"]
+                partner.embat_id = json.dumps(embat_id_dict)
+                message = _("Partner loaded in Embat with ID: %s") % (content["id"])
                 embat_data._create_log("INFO", "CONTACTS_INFO", message, partner)
 
 
@@ -102,15 +123,37 @@ class ResPartner(models.Model):
         if not embat_data:
             raise UserError(_("Please configure the Embat data first."))
         for partner in self.filtered(lambda p: p.is_company):
+            synced = False
             if partner.embat_id:
+                if partner.embat_id.startswith('{'):
+                    try:
+                        embat_id_dict = json.loads(partner.embat_id)
+                        if embat_data.embat_company_id in embat_id_dict:
+                            synced = True
+                    except ValueError:
+                        pass
+                else:
+                    synced = True
+            
+            if synced:
                 endpoint = "contacts/" + embat_data.embat_company_id + "/" + str(partner.id)
                 response, content = embat_data._embat_request(endpoint, partner, request_type="delete")
                 if response.status_code not in [200, 204]:
                     message = _("Could not delete the partner in Embat: %s") % (response)
                     embat_data._create_log("ERROR", "CONTACTS_ERROR", message, partner)
                     raise ValidationError(message)
-                partner.embat_id = False
-                message = _("Partner deleted in Embat with ID: %s") % (partner.embat_id)
+                
+                if partner.embat_id and partner.embat_id.startswith('{'):
+                    try:
+                        embat_id_dict = json.loads(partner.embat_id)
+                        if embat_data.embat_company_id in embat_id_dict:
+                            del embat_id_dict[embat_data.embat_company_id]
+                            partner.embat_id = json.dumps(embat_id_dict)
+                    except ValueError:
+                        partner.embat_id = False
+                else:
+                    partner.embat_id = False
+                message = _("Partner deleted in Embat with ID: %s") % (partner.id)
                 embat_data._create_log("INFO", "CONTACTS_INFO", message, partner)
 
     @api.model_create_multi
