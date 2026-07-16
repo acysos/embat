@@ -18,34 +18,48 @@ class AccountAnalyticAccount(models.Model):
             embat_data = account.env.company.embat_data_id
             if not embat_data:
                 raise UserError(_("Please configure the Embat data first."))
+            
+            if not account.group_id:
+                continue
+
             data = {
-                "customId": str(account.id),
-                "source": "erp",
-                "active": True,
-                "name": account.name,
-                "type": "list",
-                "values": [
+                "data": [
                     {
                         "customId": str(account.id),
                         "name": account.name,
                     }
                 ],
             }
-            if account.embat_id:
-                endpoint = "attributes/" + embat_data.embat_company_id + "/" + str(account.id)
-                data.pop("analyticAccountCode", None)
-                request_type = "patch"
-            else:
-                endpoint = "attributes/" + embat_data.embat_company_id
-                request_type = "post"
-            response, content = embat_data._embat_request(endpoint, account, request_type=request_type, data=data)
-            if not content or "id" not in content:
-                message = _("Could not retrieve the analytic account ID from Embat: %s") % (response)
+            # Custom ID of the attribute is the group_id
+            plan_custom_id = str(account.group_id.id)
+            
+            endpoint = "attributes/" + embat_data.embat_company_id + "/" + plan_custom_id + "/values/bulk"
+            response, content = embat_data._embat_request(endpoint, account, request_type="post", data=data)
+            
+            if response.status_code == 404:
+                # The attribute doesn't exist, we need to create it
+                create_data = {
+                    "customId": plan_custom_id,
+                    "name": account.group_id.name,
+                    "source": "erp",
+                    "active": True,
+                    "type": "list",
+                    "values": data["data"]
+                }
+                create_endpoint = "attributes/" + embat_data.embat_company_id
+                response, content = embat_data._embat_request(create_endpoint, account, request_type="post", data=create_data)
+
+            if response.status_code not in [200, 201, 204] or not content:
+                message = _("Could not sync the analytic account with Embat: %s") % (response.text)
                 embat_data._create_log("ERROR", "ATTRIBUTES_ERROR", message, account)
                 raise ValidationError(message)
+
+            # We can use the content ID as embat_id or simply mark it as synced.
+            # Assuming the response is the attribute object, we save its ID, or we just save a placeholder if not present
             if not account.embat_id:
-                account.embat_id = content["id"]
-            message = _("Analytic account synced with Embat successfully: %s") % (account.embat_id)
+                account.embat_id = content.get("id") or plan_custom_id
+                
+            message = _("Analytic account synced with Embat successfully: %s") % (account.name)
             embat_data._create_log("INFO", "ATTRIBUTES_INFO", message, account)
 
     @api.model_create_multi
@@ -67,15 +81,21 @@ class AccountAnalyticAccount(models.Model):
         if not embat_data:
             raise UserError(_("Please configure the Embat data first."))
         for account in self:
-            if account.embat_id:
-                endpoint = "attributes/" + embat_data.embat_company_id + "/" + str(account.id)
-                response, content = embat_data._embat_request(endpoint, account, request_type="delete")
-                if response.status_code not in [200, 204]:
-                    message = _("Could not delete the analytic account in Embat: %s") % (response)
+            if account.embat_id and account.group_id:
+                plan_custom_id = str(account.group_id.id)
+                endpoint = "attributes/" + embat_data.embat_company_id + "/" + plan_custom_id + "/values"
+                data = {
+                    "data": [
+                        {"customId": str(account.id)}
+                    ]
+                }
+                response, content = embat_data._embat_request(endpoint, account, request_type="delete", data=data)
+                if response.status_code not in [200, 204, 404]:
+                    message = _("Could not delete the analytic account in Embat: %s") % (response.text)
                     embat_data._create_log("ERROR", "ATTRIBUTES_ERROR", message, account)
                     raise ValidationError(message)
                 account.embat_id = False
-                message = _("Analytic account deleted in Embat with ID: %s") % (account.embat_id)
+                message = _("Analytic account deleted in Embat: %s") % (account.name)
                 embat_data._create_log("INFO", "ATTRIBUTES_INFO", message, account)
 
     def unlink(self):
