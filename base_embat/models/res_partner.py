@@ -10,9 +10,35 @@ class ResPartner(models.Model):
 
     embat_id = fields.Char(
         string="Embat ID",
-        help="The ID of the partner in Embat.",
-        readonly=True,
+        help="The ID of the partner in Embat for the current company.",
+        compute="_compute_embat_id",
+        search="_search_embat_id",
     )
+
+    @api.depends("embat_mapping_ids")
+    def _compute_embat_id(self):
+        for partner in self:
+            mapping = partner.embat_mapping_ids.filtered(lambda m: m.company_id == self.env.company)
+            partner.embat_id = mapping[0].embat_id if mapping else False
+
+    def _search_embat_id(self, operator, value):
+        if operator == "=":
+            mappings = self.env["embat.partner.mapping"].sudo().search([
+                ("embat_id", operator, value),
+                ("company_id", "in", self.env.companies.ids)
+            ])
+            return [("id", "in", mappings.mapped("partner_id").ids)]
+        elif operator in ("!=", "not ilike", "not in"):
+            return [("embat_mapping_ids.embat_id", operator, value)]
+        else:
+            return [("embat_mapping_ids.embat_id", operator, value)]
+
+    embat_mapping_ids = fields.One2many(
+        comodel_name="embat.partner.mapping",
+        inverse_name="partner_id",
+        string="Embat Mappings",
+    )
+
 
     embat_api_log_ids = fields.Many2many(
         comodel_name="embat.api.log",
@@ -29,14 +55,15 @@ class ResPartner(models.Model):
             record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
 
     def _load_embat_partner(self):
-        if self.env.company.use_embat:
-            for partner in self.filtered(lambda p: p.is_company):
-                embat_data = partner.env.company.embat_data_id
+        for partner in self.filtered(lambda p: p.is_company):
+            target_companies = partner.company_id if partner.company_id else self.env["res.company"].search([("use_embat", "=", True)])
+            for comp in target_companies.filtered("use_embat"):
+                embat_data = comp.embat_data_id
                 if not embat_data:
-                    raise UserError(_("Please configure the Embat data first."))
+                    raise UserError(_("Please configure the Embat data first for company %s.") % comp.name)
 
                 payments_accounts = []
-                company_currency = self.env.company.currency_id.name or 'EUR'
+                company_currency = comp.currency_id.name or 'EUR'
                 for bank in partner.bank_ids.filtered('sanitized_acc_number'):
                     details = {"iban": bank.sanitized_acc_number}
                     if bank.bank_id and bank.bank_id.bic:
@@ -81,17 +108,8 @@ class ResPartner(models.Model):
                 if not data["taxId"]:
                     data["taxId"] = ""
                 # Check if it was synced for this Embat company
-                synced_for_company = False
-                embat_id_dict = {}
-                if partner.embat_id:
-                    if partner.embat_id.startswith('{'):
-                        try:
-                            embat_id_dict = json.loads(partner.embat_id)
-                            synced_for_company = embat_data.embat_company_id in embat_id_dict
-                        except ValueError:
-                            pass
-                    else:
-                        synced_for_company = True # Legacy behavior
+                mapping = partner.embat_mapping_ids.filtered(lambda m: m.company_id == comp)
+                synced_for_company = bool(mapping)
 
                 if synced_for_company:
                     endpoint = "contacts/" + embat_data.embat_company_id + "/" + str(partner.id)
@@ -106,70 +124,105 @@ class ResPartner(models.Model):
                     embat_data._create_log("ERROR", "CONTACTS_ERROR", message, partner)
                     raise UserError(message)
                 
-                if not partner.embat_id or not partner.embat_id.startswith('{'):
-                    embat_id_dict = {}
-                    if partner.embat_id:
-                        embat_id_dict['legacy'] = partner.embat_id
-                
-                embat_id_dict[embat_data.embat_company_id] = content["id"]
-                partner.embat_id = json.dumps(embat_id_dict)
+                if not synced_for_company:
+                    # --- LEGACY MIGRATION SCRIPT (Commented out) ---
+                    # If you have production data using the old JSON approach, you can uncomment this
+                    # to auto-migrate the data. We use raw SQL because the field is now 'computed'
+                    # and the ORM will not read the old physical column value.
+                    #
+                    # self.env.cr.execute("SELECT embat_id FROM res_partner WHERE id = %s", [partner.id])
+                    # legacy_val = self.env.cr.fetchone()
+                    # legacy_embat_id = legacy_val[0] if legacy_val else False
+                    # 
+                    # if legacy_embat_id:
+                    #     if legacy_embat_id.startswith('{'):
+                    #         try:
+                    #             embat_id_dict = json.loads(legacy_embat_id)
+                    #             if embat_data.embat_company_id in embat_id_dict:
+                    #                 synced_for_company = True
+                    #                 partner.embat_mapping_ids = [(0, 0, {
+                    #                     'company_id': comp.id,
+                    #                     'embat_id': embat_id_dict[embat_data.embat_company_id]
+                    #                 })]
+                    #         except ValueError:
+                    #             pass
+                    #     else:
+                    #         synced_for_company = True
+                    #         partner.embat_mapping_ids = [(0, 0, {
+                    #             'company_id': comp.id,
+                    #             'embat_id': legacy_embat_id
+                    #         })]
+                    # -----------------------------------------------
+                    partner.embat_mapping_ids = [(0, 0, {
+                        'company_id': comp.id,
+                        'embat_id': content["id"],
+                    })]
+                    
                 message = _("Partner loaded in Embat with ID: %s") % (content["id"])
                 embat_data._create_log("INFO", "CONTACTS_INFO", message, partner)
 
 
     def _delete_embat_partner(self):
         """Delete the Embat partner if it exists."""
-        embat_data = self.env.company.embat_data_id
-        if not embat_data:
-            raise UserError(_("Please configure the Embat data first."))
         for partner in self.filtered(lambda p: p.is_company):
-            synced = False
-            if partner.embat_id:
-                if partner.embat_id.startswith('{'):
-                    try:
-                        embat_id_dict = json.loads(partner.embat_id)
-                        if embat_data.embat_company_id in embat_id_dict:
-                            synced = True
-                    except ValueError:
-                        pass
-                else:
-                    synced = True
-            
-            if synced:
-                endpoint = "contacts/" + embat_data.embat_company_id + "/" + str(partner.id)
-                response, content = embat_data._embat_request(endpoint, partner, request_type="delete")
-                if response.status_code not in [200, 204]:
-                    message = _("Could not delete the partner in Embat: %s") % (response)
-                    embat_data._create_log("ERROR", "CONTACTS_ERROR", message, partner)
-                    raise ValidationError(message)
+            target_companies = partner.company_id if partner.company_id else self.env["res.company"].search([("use_embat", "=", True)])
+            for comp in target_companies.filtered("use_embat"):
+                embat_data = comp.embat_data_id
+                if not embat_data:
+                    raise UserError(_("Please configure the Embat data first for company %s.") % comp.name)
+
+                mapping = partner.embat_mapping_ids.filtered(lambda m: m.company_id == comp)
+                synced = bool(mapping)
                 
-                if partner.embat_id and partner.embat_id.startswith('{'):
-                    try:
-                        embat_id_dict = json.loads(partner.embat_id)
-                        if embat_data.embat_company_id in embat_id_dict:
-                            del embat_id_dict[embat_data.embat_company_id]
-                            partner.embat_id = json.dumps(embat_id_dict)
-                    except ValueError:
-                        partner.embat_id = False
-                else:
-                    partner.embat_id = False
-                message = _("Partner deleted in Embat with ID: %s") % (partner.id)
-                embat_data._create_log("INFO", "CONTACTS_INFO", message, partner)
+                # --- LEGACY MIGRATION SCRIPT (Commented out) ---
+                # if not synced:
+                #     self.env.cr.execute("SELECT embat_id FROM res_partner WHERE id = %s", [partner.id])
+                #     legacy_val = self.env.cr.fetchone()
+                #     legacy_embat_id = legacy_val[0] if legacy_val else False
+                #     
+                #     if legacy_embat_id:
+                #         if legacy_embat_id.startswith('{'):
+                #             try:
+                #                 embat_id_dict = json.loads(legacy_embat_id)
+                #                 if embat_data.embat_company_id in embat_id_dict:
+                #                     synced = True
+                #             except ValueError:
+                #                 pass
+                #         else:
+                #             synced = True
+                # -----------------------------------------------
+                
+                if synced:
+                    endpoint = "contacts/" + embat_data.embat_company_id + "/" + str(partner.id)
+                    response, content = embat_data._embat_request(endpoint, partner, request_type="delete")
+                    if response.status_code not in [200, 204]:
+                        message = _("Could not delete the partner in Embat: %s") % (response)
+                        embat_data._create_log("ERROR", "CONTACTS_ERROR", message, partner)
+                        raise ValidationError(message)
+                    
+                    if mapping:
+                        mapping.unlink()
+                        
+                    # --- LEGACY CLEANUP (Commented out) ---
+                    # Clean legacy field directly
+                    # self.env.cr.execute("UPDATE res_partner SET embat_id = NULL WHERE id = %s", [partner.id])
+                    # --------------------------------------
+                        
+                    message = _("Partner deleted in Embat with ID: %s") % (partner.id)
+                    embat_data._create_log("INFO", "CONTACTS_INFO", message, partner)
 
     @api.model_create_multi
     def create(self, vals_list):
         res = super().create(vals_list)
-        if self.env.company.use_embat:
-            res._load_embat_partner()
+        res._load_embat_partner()
         return res
 
     def write(self, vals):
         res = super().write(vals)
-        if self.env.company.use_embat and 'embat_id' not in vals:
+        if 'embat_id' not in vals:
             self._load_embat_partner()
         return res
 
     def unlink(self):
-        if self.env.company.use_embat:
-            self._delete_embat_partner()
+        self._delete_embat_partner()
         return super().unlink()
