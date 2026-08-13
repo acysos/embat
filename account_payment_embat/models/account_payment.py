@@ -50,7 +50,7 @@ class AccountPayment(models.Model):
     #         "amount": self.amount,
     #         "currency": self.currency_id.name,
     #         "date": str(self.date) + 'T12:00:00.000Z',
-    #         "concept": self.ref or self.name,
+    #         "concept": self.memo or self.name,
     #         "customId": f"{self._name}-{self.id}",
     #         "contact": {
     #             "legalName": self.partner_id.name,
@@ -74,7 +74,7 @@ class AccountPayment(models.Model):
             "accountingAmount": self.amount,
             "currency": self.currency_id.name,
             "date": str(self.date) + 'T12:00:00.000Z',
-            "concept": self.ref or self.name,
+            "concept": self.memo or self.name,
             "type": "operations",
             "contactCompanyId": self.partner_id.id if self.partner_id else None,
             "customId": f"{self._name}-{self.id}",

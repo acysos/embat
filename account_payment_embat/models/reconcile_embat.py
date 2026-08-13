@@ -112,7 +112,7 @@ class EmbatAccount(models.Model):
 
                 for payment_id in payments_ids:
                     if analytic_distribution:
-                        payment_id.line_ids.write({'analytic_distribution': analytic_distribution})
+                        payment_id.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
                     self.reconcile_payment(
                         payment_id, move, payment.journal_id, company.id, date)
                     self.mark_as_sync(operation["customId"])
@@ -120,11 +120,11 @@ class EmbatAccount(models.Model):
                 move_payment = payment_env.search([
                     ("embat_id", "=", False), 
                     ("company_id", "=", company.id),
-                    ("ref", "=", move.name),
+                    ("memo", "=", move.name),
                 ])
                 if move_payment:
                     if analytic_distribution:
-                        move_payment.line_ids.write({'analytic_distribution': analytic_distribution})
+                        move_payment.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
 
                     move_payment.embat_id = payment["transactionId"]
                     if move.embat_transaction_id and payment["transactionId"] not in move.embat_transaction_id.split(","):
@@ -156,14 +156,14 @@ class EmbatAccount(models.Model):
                         ).create(payment_vals)._create_payments()
 
                         if analytic_distribution:
-                            move_payment.line_ids.write({'analytic_distribution': analytic_distribution})
+                            move_payment.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
 
                         move_payment.embat_id = payment["transactionId"]
                         move_payment.embat_transaction_id = (
                             payment["transactionId"])
 
                         # Force update of lines to send transactionId
-                        payment_lines = move_payment.line_ids.filtered(
+                        payment_lines = move_payment.move_id.line_ids.filtered(
                             lambda line: line.account_id.account_type in
                             ['asset_cash'] and line.journal_id.embat_id)
                         payment_lines._load_embat_move_line_asset()
@@ -320,7 +320,7 @@ class EmbatAccount(models.Model):
             "amount": abs(amount),
             "journal_id": journal.id,
             "date": date,
-            "ref": payment.get("concept") or "",
+            "memo": payment.get("concept") or "",
             "embat_id": payment["transactionId"],
             "embat_transaction_id": payment["transactionId"],
             "destination_account_id": destination_account.id,
@@ -328,11 +328,11 @@ class EmbatAccount(models.Model):
 
         move_payment = self.env["account.payment"].create(payment_vals)
         if analytic_distribution:
-            move_payment.line_ids.write({'analytic_distribution': analytic_distribution})
+            move_payment.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
         move_payment.action_post()
 
         # Force update of lines to send transactionId
-        payment_lines = move_payment.line_ids.filtered(
+        payment_lines = move_payment.move_id.line_ids.filtered(
             lambda line: line.account_id.account_type in ['asset_cash'] and line.journal_id.embat_id
         )
         payment_lines._load_embat_move_line_asset()
@@ -360,7 +360,7 @@ class EmbatAccount(models.Model):
             })
             st_line.button_post()
 
-            counterpart_line = move_payment.line_ids.filtered(
+            counterpart_line = move_payment.move_id.line_ids.filtered(
                 lambda line: line.account_id.id == reconcile_account_id.id)
             test_st_line_1 = st_line.line_ids.filtered(
                 lambda line: line.payment_ref == move_payment.name)
@@ -382,7 +382,7 @@ class EmbatAccount(models.Model):
 
     def reconciliate_payment_embat(self, payment, move, journal, company, date):
         lines_to_reconcile = self.env['account.move.line']
-        payment_lines = payment.line_ids.filtered(
+        payment_lines = payment.move_id.line_ids.filtered(
             lambda l: l.account_id.account_type in
             ('asset_receivable', 'liability_payable'))
         move_lines = move.line_ids.filtered(
@@ -419,7 +419,7 @@ class EmbatAccount(models.Model):
             })
             st_line.button_post()
 
-            counterpart_line = payment.line_ids.filtered(
+            counterpart_line = payment.move_id.line_ids.filtered(
                 lambda line: line.account_id.id == reconcile_account_id.id)
             test_st_line_1 = st_line.line_ids.filtered(
                 lambda line: line.payment_ref == payment.name)

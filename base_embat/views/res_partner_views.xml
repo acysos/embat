@@ -6,6 +6,14 @@
         <field name="inherit_id" ref="base.view_partner_form"/>
         <field name="arch" type="xml">
             <notebook position="inside">
+                <page string="Embat Mappings" groups="base.group_no_one">
+                    <field name="embat_mapping_ids">
+                        <list editable="bottom">
+                            <field name="company_id"/>
+                            <field name="embat_id"/>
+                        </list>
+                    </field>
+                </page>
                 <page string="Embat API Logs" groups="base.group_no_one">
                     <field name="embat_api_log_ids" readonly="1">
                         <list>
