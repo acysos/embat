@@ -49,6 +49,9 @@ class AccountMove(models.Model):
                     "valueCustomId": str(account.id),
                 })
 
+        sign = 1 if self.move_type in ['out_invoice', 'in_refund', 'out_receipt'] else -1 if self.move_type in ['in_invoice', 'out_refund', 'in_receipt'] else 1
+        amount_total_in_currency_signed = abs(self.amount_total) if self.move_type == 'entry' else self.amount_total * sign
+
         return {
             "status": status,
             "chargeAccount": None,
@@ -56,7 +59,7 @@ class AccountMove(models.Model):
             "issuanceDate": str(self.invoice_date) + 'T12:00:00.000Z' if self.invoice_date else str(fields.Date.context_today(self)) + 'T12:00:00.000Z',
             "dueDate": str(self.invoice_date_due) + 'T12:00:00.000Z' if self.invoice_date_due else '2999-12-31T12:00:00.000Z',
             "concept": self.ref if self.ref else '' + (self.name if self.name else ''),
-            "amount": self.amount_total_in_currency_signed,
+            "amount": amount_total_in_currency_signed,
             "currency": self.currency_id.name if self.currency_id else self.company_id.currency_id.name,
             "accountingAmount": self.amount_total_signed,
             "accountingCurrency": self.company_id.currency_id.name if self.company_id.currency_id else 'EUR',
