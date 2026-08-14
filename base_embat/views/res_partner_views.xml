@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <notebook position="inside">
                 <page string="Embat Mappings" groups="base.group_no_one">
-                    <field name="embat_mapping_ids">
+                    <field name="embat_mapping_ids" readonly="1">
                         <list editable="bottom">
                             <field name="company_id"/>
                             <field name="embat_id"/>
