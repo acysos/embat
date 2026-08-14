@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_account_analytic_account_form_embat_logs" model="ir.ui.view">
+        <field name="name">account.analytic.account.form.embat.logs</field>
+        <field name="model">account.analytic.account</field>
+        <field name="inherit_id" ref="analytic.view_account_analytic_account_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <notebook>
+                    <page string="Embat Mappings" groups="base.group_no_one">
+                        <field name="embat_mapping_ids" readonly="1">
+                            <list>
+                                <field name="company_id"/>
+                                <field name="embat_id"/>
+                            </list>
+                        </field>
+                    </page>
+                </notebook>
+            </xpath>
+        </field>
+    </record>
+</odoo>
