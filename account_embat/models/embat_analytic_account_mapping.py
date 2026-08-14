@@ -28,8 +28,8 @@ class EmbatAnalyticAccountMapping(models.Model):
 
     _sql_constraints = [
         (
-            "embat_id_company_uniq",
-            "unique(company_id, embat_id)",
-            "The Embat ID must be unique per company!",
+            "analytic_account_company_uniq",
+            "unique(company_id, analytic_account_id)",
+            "The mapping must be unique per company and analytic account!",
         )
     ]
