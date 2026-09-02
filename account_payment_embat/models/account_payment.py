@@ -61,13 +61,23 @@ class AccountPayment(models.Model):
     def _prepare_embat_payment_data(self):
         self.ensure_one()
         operations = []
-        for payment_line in self.payment_line_ids:
-            operations.append(
-                {
-                    "amount": self.amount,
-                    "customId": f"account.move-{payment_line.move_line_id.move_id.id}",
-                }
-            )
+        if hasattr(self, 'payment_line_ids') and self.payment_line_ids:
+            for payment_line in self.payment_line_ids:
+                if payment_line.move_line_id and payment_line.move_line_id.move_id:
+                    operations.append(
+                        {
+                            "amount": self.amount,
+                            "customId": f"account.move-{payment_line.move_line_id.move_id.id}",
+                        }
+                    )
+        else:
+            for invoice in (self.reconciled_invoice_ids | self.reconciled_bill_ids):
+                operations.append(
+                    {
+                        "amount": self.amount,
+                        "customId": f"account.move-{invoice.id}",
+                    }
+                )
         payment_data = {
             "operations": operations,
             "amount": self.amount,
