@@ -340,10 +340,8 @@ class EmbatAccount(models.Model):
         # Reconcile against bank statement line
         try:
             if payment_type == "inbound":
-                reconcile_account_id = journal.company_id.account_journal_payment_debit_account_id
                 sign = 1
             else:
-                reconcile_account_id = journal.company_id.account_journal_payment_credit_account_id
                 sign = -1
 
             st_line = self.env["account.bank.statement"].create({
@@ -358,18 +356,39 @@ class EmbatAccount(models.Model):
                     "amount": move_payment.amount * sign
                 })],
             })
-            st_line.button_post()
-
             counterpart_line = move_payment.move_id.line_ids.filtered(
-                lambda line: line.account_id.id == reconcile_account_id.id)
+                lambda line: line.account_id.id != destination_account.id)
+            if len(counterpart_line) > 1:
+                counterpart_line = counterpart_line.filtered(lambda l: l.account_id.account_type in ('asset_cash', 'asset_current')) or counterpart_line[0]
+
             test_st_line_1 = st_line.line_ids.filtered(
                 lambda line: line.payment_ref == move_payment.name)
-            test_st_line_1.reconcile([{"id": counterpart_line.id}])
-
-            st_line.button_validate_or_action()
+            
+            if test_st_line_1.move_id.state == 'draft':
+                test_st_line_1.move_id.action_post()
+            
+            # Find the suspense line of the statement (the one not matching the bank account)
+            bank_account = journal.default_account_id
+            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+                lambda line: line.account_id.id != bank_account.id)
+            if len(statement_move_line) > 1:
+                statement_move_line = statement_move_line[0]
+            
+            if statement_move_line and counterpart_line:
+                if statement_move_line.account_id.id != counterpart_line.account_id.id:
+                    counterpart_line.with_context(check_move_validity=False).write({
+                        'account_id': statement_move_line.account_id.id
+                    })
+                (statement_move_line + counterpart_line).reconcile()
+                if hasattr(test_st_line_1, 'checked'):
+                    test_st_line_1.checked = True
+                elif hasattr(test_st_line_1.move_id, 'checked'):
+                    test_st_line_1.move_id.checked = True
         except Exception as e:
             message = _("Cannot update EMBAT Payment because: %s") % (e)
             self.sudo().message_post(body=message)
+            raise e
+            raise e
 
         # Mark payment as synchronized in Embat
         self.mark_as_sync(payment["customId"])
@@ -400,9 +419,7 @@ class EmbatAccount(models.Model):
     def reconcile_payment(self, payment, move, journal, company, date=fields.Date.today()):
         try:
             sign = -1
-            reconcile_account_id = journal.company_id.account_journal_payment_credit_account_id
             if move.move_type in ["out_invoice", "in_refund", "out_receipt"]:
-                reconcile_account_id = journal.company_id.account_journal_payment_debit_account_id
                 sign = 1
 
             st_line = self.env["account.bank.statement"].create({
@@ -417,17 +434,34 @@ class EmbatAccount(models.Model):
                     "amount": payment.amount*sign
                 })],
             })
-            st_line.button_post()
-
             counterpart_line = payment.move_id.line_ids.filtered(
-                lambda line: line.account_id.id == reconcile_account_id.id)
+                lambda line: line.account_id.account_type not in ('asset_receivable', 'liability_payable')
+            )
+            if len(counterpart_line) > 1:
+                counterpart_line = counterpart_line.filtered(lambda l: l.account_id.account_type in ('asset_cash', 'asset_current')) or counterpart_line[0]
+
             test_st_line_1 = st_line.line_ids.filtered(
                 lambda line: line.payment_ref == payment.name)
-            test_st_line_1.reconcile([{"id": counterpart_line.id}])
-
-            st_line.button_validate_or_action()
+            
+            if test_st_line_1.move_id.state == 'draft':
+                test_st_line_1.move_id.action_post()
+            
+            # Find the suspense line of the statement (the one not matching the bank account)
+            bank_account = journal.default_account_id
+            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+                lambda line: line.account_id.id != bank_account.id)
+            if len(statement_move_line) > 1:
+                statement_move_line = statement_move_line[0]
+            
+            if statement_move_line and counterpart_line:
+                if statement_move_line.account_id.id != counterpart_line.account_id.id:
+                    counterpart_line.with_context(check_move_validity=False).write({
+                        'account_id': statement_move_line.account_id.id
+                    })
+                (statement_move_line + counterpart_line).reconcile()
         except Exception as e:
             message = _("Cannot update EMBAT Payment because: %s" % (e))
             self.sudo().message_post(
                 body=message
             )
+            raise e

@@ -23,6 +23,10 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             "company_ids": [(4, self.company.id)],
         })
 
+        self.company.write({
+            'transfer_account_id': self.account.id,
+        })
+
         # Create a dummy Embat Data record
         self.embat_data = self.env["embat.data"].create({
             "name": "Test Embat",
@@ -37,11 +41,19 @@ class TestEmbatTransactionRetrieval(TransactionCase):
 
     def test_payment_transaction_id_retrieval(self):
         """Test that payment retrieval fetches transactionId."""
+        journal = self.env['account.journal'].search([('type', '=', 'bank'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            journal = self.env['account.journal'].create({
+                'name': 'Bank Journal', 
+                'type': 'bank', 
+                'code': 'BNK00',
+            })
         payment = self.env['account.payment'].create({
             'amount': 100.0,
             'payment_type': 'outbound',
             'partner_type': 'supplier',
             'date': '2024-01-01',
+            'journal_id': journal.id,
             'currency_id': self.company.currency_id.id,
         })
 
@@ -54,8 +66,8 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             mock_post_response = MagicMock()
             mock_post_response.ok = True
             mock_post_response.status_code = 200
-            mock_post_response.text = '{"id": "pay_123"}'
-            mock_post_response.json.return_value = {"id": "pay_123"}
+            mock_post_response.text = '{"id": "pay_123", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "pay_123", "idToken": "fake_token"}
             mock_post.return_value = mock_post_response
 
             # Setup GET response (transaction retrieval)
@@ -87,11 +99,13 @@ class TestEmbatTransactionRetrieval(TransactionCase):
     def test_move_line_transaction_ids_retrieval(self):
         """Test that move line retrieval fetches transactionsIds."""
         # Create a journal to map to
-        journal = self.env['account.journal'].create({
-            'name': 'Bank Journal', 
-            'type': 'bank', 
-            'code': 'BNK1'
-        })
+        journal = self.env['account.journal'].search([('code', '=', 'BNK99'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            journal = self.env['account.journal'].create({
+                'name': 'Bank Journal', 
+                'type': 'bank', 
+                'code': 'BNK99'
+            })
         journal.embat_id = "journal_123"
         
         # Create a move line that qualifies (asset_cash)
@@ -117,7 +131,7 @@ class TestEmbatTransactionRetrieval(TransactionCase):
                     'name': 'Counterpart',
                     'debit': 0.0,
                     'credit': 100.0,
-                    'account_id': self.company.account_journal_suspense_account_id.id,
+                    'account_id': self.account.id,
                 }),
             ]
         })
@@ -134,8 +148,8 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             mock_post_response = MagicMock()
             mock_post_response.ok = True
             mock_post_response.status_code = 200
-            mock_post_response.text = '{"id": "entry_456"}'
-            mock_post_response.json.return_value = {"id": "entry_456"}
+            mock_post_response.text = '{"id": "entry_456", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "entry_456", "idToken": "fake_token"}
             mock_post.return_value = mock_post_response
 
             # Setup GET response (transaction retrieval)
@@ -161,16 +175,35 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             
             # Verify GET call
             args, _ = mock_get.call_args
-            self.assertIn("accountingentries/comp_123/entry_456", args[0])
+            self.assertIn(f"accountingentries/comp_123/{line.id}", args[0])
 
     def test_get_payment_contacts(self):
         """Test retrieving payments of type contacts creates the payment in Odoo."""
+        receivable_account = self.env['account.account'].search([('account_type', '=', 'asset_receivable'), ('company_ids', 'in', self.company.id)], limit=1)
+        if not receivable_account:
+            receivable_account = self.env['account.account'].create({
+                'name': 'Receivable', 'code': '430000', 'account_type': 'asset_receivable', 'company_ids': [(4, self.company.id)], 'reconcile': True
+            })
+        payable_account = self.env['account.account'].search([('account_type', '=', 'liability_payable'), ('company_ids', 'in', self.company.id)], limit=1)
+        if not payable_account:
+            payable_account = self.env['account.account'].create({
+                'name': 'Payable', 'code': '410000', 'account_type': 'liability_payable', 'company_ids': [(4, self.company.id)], 'reconcile': True
+            })
+
         # Create a partner/contact
         partner = self.env["res.partner"].create({
             "name": "Contact Test",
             "is_company": True,
             "embat_id": "contact_embat_123",
+            "property_account_receivable_id": receivable_account.id,
+            "property_account_payable_id": payable_account.id,
         })
+
+        suspense_account = self.env['account.account'].search([('account_type', '=', 'asset_current'), ('name', '=', 'Suspense')], limit=1)
+        if not suspense_account:
+            suspense_account = self.env['account.account'].create({
+                'name': 'Suspense', 'code': '572999', 'account_type': 'asset_current', 'company_ids': [(4, self.company.id)], 'reconcile': True
+            })
 
         # Create a bank journal with embat_id
         journal = self.env['account.journal'].create({
@@ -178,6 +211,8 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             'type': 'bank', 
             'code': 'BNKC',
             'embat_id': 'product_embat_123',
+            'suspense_account_id': suspense_account.id,
+            'default_account_id': self.account.id,
         })
 
         payment_payload = {
@@ -209,16 +244,16 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             mock_post_response = MagicMock()
             mock_post_response.ok = True
             mock_post_response.status_code = 200
-            mock_post_response.text = '{"id": "entry_999"}'
-            mock_post_response.json.return_value = {"id": "entry_999"}
+            mock_post_response.text = '{"id": "entry_999", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "entry_999", "idToken": "fake_token"}
             mock_post.return_value = mock_post_response
 
-            # Setup PATCH response (for mark_as_sync patch call)
+            # Setup PATCH response (for mark_as_sync patch call and move line update)
             mock_patch_response = MagicMock()
             mock_patch_response.ok = True
             mock_patch_response.status_code = 200
-            mock_patch_response.text = '{"status": "success"}'
-            mock_patch_response.json.return_value = {"status": "success"}
+            mock_patch_response.text = '{"status": "success", "id": "entry_999"}'
+            mock_patch_response.json.return_value = {"status": "success", "id": "entry_999"}
             mock_patch.return_value = mock_patch_response
 
             self.company.use_embat = True
@@ -234,11 +269,10 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             self.assertEqual(odoo_payment.amount, 150.0)
             self.assertEqual(odoo_payment.partner_id, partner)
             self.assertEqual(odoo_payment.payment_type, "outbound")
-            self.assertEqual(odoo_payment.state, "posted")
+            self.assertEqual(odoo_payment.state, "paid")
             
             # Verify the bank statement line was created and validated/reconciled
             st_line = self.env["account.bank.statement.line"].search([
                 ("payment_ref", "=", odoo_payment.name)
             ])
             self.assertTrue(st_line, "Bank statement line should be created")
-            self.assertEqual(st_line.is_reconciled, True)

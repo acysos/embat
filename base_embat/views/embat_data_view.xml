@@ -51,6 +51,6 @@
         <field name="view_mode">list,form</field>
     </record>
 
-    <menuitem id="menu_embat_config_root" name="Embat" parent="account.account_management_menu" sequence="10"/>
+    <menuitem id="menu_embat_config_root" name="Embat" parent="account.menu_finance_configuration" sequence="10"/>
     <menuitem id="menu_embat_data" name="Embat Data" parent="menu_embat_config_root" action="action_embat_data" sequence="10"/>
 </odoo>
