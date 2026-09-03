@@ -142,7 +142,7 @@ class AccountMoveLine(models.Model):
     def write(self, vals):
         """Override write method to load Embat data after move line update."""
         res = super(AccountMoveLine, self).write(vals)
-        if self.env.company.use_embat and 'embat_id' not in vals:
+        if self.env.company.use_embat and 'embat_id' not in vals and 'embat_transaction_ids' not in vals:
             for line in self:
                 if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
                     line._load_embat_move_line_asset()

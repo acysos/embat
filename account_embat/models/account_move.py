@@ -34,26 +34,6 @@ class AccountMove(models.Model):
 
     def _prepare_embat_move_data(self, status, embat_type):
         self.ensure_one()
-        attributes = []
-        analytic_account_ids = set()
-        for line in self.line_ids:
-            if line.analytic_distribution:
-                for account_id_str in line.analytic_distribution.keys():
-                    for acc_id in account_id_str.split(','):
-                        try:
-                            analytic_account_ids.add(int(acc_id))
-                        except ValueError:
-                            pass
-        
-        if analytic_account_ids:
-            accounts = self.env['account.analytic.account'].browse(list(analytic_account_ids))
-            for account in accounts:
-                attributes.append({
-                    "customId": str(account.id),
-                    "value": account.name,
-                    "valueCustomId": str(account.id),
-                })
-
         return {
             "status": status,
             "chargeAccount": None,
@@ -67,7 +47,7 @@ class AccountMove(models.Model):
             "accountingCurrency": self.company_id.currency_id.name if self.company_id.currency_id else 'EUR',
             "exchangeRate": self.currency_id.rate if self.currency_id and self.company_id.currency_id and self.currency_id != self.company_id.currency_id else 1.0,
             "sync": False,
-            "attributes": attributes if attributes else None,
+            "attributes": None,
             "contact": {
                 "tradeName": str(self.partner_id.name),
                 "legalName": str(self.partner_id.name),

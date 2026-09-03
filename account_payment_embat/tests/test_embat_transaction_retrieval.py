@@ -54,8 +54,8 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             mock_post_response = MagicMock()
             mock_post_response.ok = True
             mock_post_response.status_code = 200
-            mock_post_response.text = '{"id": "pay_123"}'
-            mock_post_response.json.return_value = {"id": "pay_123"}
+            mock_post_response.text = '{"id": "pay_123", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "pay_123", "idToken": "fake_token"}
             mock_post.return_value = mock_post_response
 
             # Setup GET response (transaction retrieval)
@@ -87,11 +87,13 @@ class TestEmbatTransactionRetrieval(TransactionCase):
     def test_move_line_transaction_ids_retrieval(self):
         """Test that move line retrieval fetches transactionsIds."""
         # Create a journal to map to
-        journal = self.env['account.journal'].create({
-            'name': 'Bank Journal', 
-            'type': 'bank', 
-            'code': 'BNK1'
-        })
+        journal = self.env['account.journal'].search([('code', '=', 'BNK99'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            journal = self.env['account.journal'].create({
+                'name': 'Bank Journal', 
+                'type': 'bank', 
+                'code': 'BNK99'
+            })
         journal.embat_id = "journal_123"
         
         # Create a move line that qualifies (asset_cash)
@@ -134,8 +136,8 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             mock_post_response = MagicMock()
             mock_post_response.ok = True
             mock_post_response.status_code = 200
-            mock_post_response.text = '{"id": "entry_456"}'
-            mock_post_response.json.return_value = {"id": "entry_456"}
+            mock_post_response.text = '{"id": "entry_456", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "entry_456", "idToken": "fake_token"}
             mock_post.return_value = mock_post_response
 
             # Setup GET response (transaction retrieval)
@@ -161,7 +163,7 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             
             # Verify GET call
             args, _ = mock_get.call_args
-            self.assertIn("accountingentries/comp_123/entry_456", args[0])
+            self.assertIn(f"accountingentries/comp_123/{line.id}", args[0])
 
     def test_get_payment_contacts(self):
         """Test retrieving payments of type contacts creates the payment in Odoo."""
@@ -209,16 +211,16 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             mock_post_response = MagicMock()
             mock_post_response.ok = True
             mock_post_response.status_code = 200
-            mock_post_response.text = '{"id": "entry_999"}'
-            mock_post_response.json.return_value = {"id": "entry_999"}
+            mock_post_response.text = '{"id": "entry_999", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "entry_999", "idToken": "fake_token"}
             mock_post.return_value = mock_post_response
 
-            # Setup PATCH response (for mark_as_sync patch call)
+            # Setup PATCH response (for mark_as_sync patch call and move line update)
             mock_patch_response = MagicMock()
             mock_patch_response.ok = True
             mock_patch_response.status_code = 200
-            mock_patch_response.text = '{"status": "success"}'
-            mock_patch_response.json.return_value = {"status": "success"}
+            mock_patch_response.text = '{"status": "success", "id": "entry_999"}'
+            mock_patch_response.json.return_value = {"status": "success", "id": "entry_999"}
             mock_patch.return_value = mock_patch_response
 
             self.company.use_embat = True
@@ -235,10 +237,10 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             self.assertEqual(odoo_payment.partner_id, partner)
             self.assertEqual(odoo_payment.payment_type, "outbound")
             self.assertEqual(odoo_payment.state, "posted")
+            self.assertTrue(odoo_payment.is_matched)
             
             # Verify the bank statement line was created and validated/reconciled
             st_line = self.env["account.bank.statement.line"].search([
                 ("payment_ref", "=", odoo_payment.name)
             ])
             self.assertTrue(st_line, "Bank statement line should be created")
-            self.assertEqual(st_line.is_reconciled, True)

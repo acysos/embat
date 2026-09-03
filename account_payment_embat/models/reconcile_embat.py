@@ -53,31 +53,6 @@ class EmbatAccount(models.Model):
                     datetime.datetime.now().strftime(EMBAT_DATE_FORMAT))
                 embat_data._create_log("INFO", "PAYMENTS_INFO", message, embat_data)
 
-    def _parse_analytic_distribution(self, payment, company):
-        analytic_distribution = {}
-        if payment.get("attributes"):
-            for attr in payment.get("attributes"):
-                val_id = attr.get("customId")
-                if not val_id:
-                    name = attr.get("name")
-                    if name:
-                        account = self.env["account.analytic.account"].search([
-                            ("name", "=", name),
-                            "|", ("company_id", "=", company.id), ("company_id", "=", False)
-                        ], limit=1)
-                        if not account:
-                            account = self.env["account.analytic.account"].create({
-                                "name": name,
-                                "company_id": company.id,
-                            })
-                        val_id = account.id
-                if val_id:
-                    try:
-                        analytic_distribution[str(int(val_id))] = 100.0
-                    except (ValueError, TypeError):
-                        pass
-        return analytic_distribution
-
     def get_payment_operation(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT OPERATION: %s", payment)
         move_env = self.env["account.move"]
@@ -91,7 +66,15 @@ class EmbatAccount(models.Model):
             )
             return
 
-        analytic_distribution = self._parse_analytic_distribution(payment, company)
+        analytic_distribution = {}
+        if payment.get("attributes"):
+            for attr in payment.get("attributes"):
+                val_id = attr.get("customId")
+                if val_id:
+                    try:
+                        analytic_distribution[str(int(val_id))] = 100.0
+                    except (ValueError, TypeError):
+                        pass
 
         for operation in payment["operations"]:
             move = move_env.search([("id", "=", int(operation["customId"].split("-")[1]))])
@@ -196,7 +179,15 @@ class EmbatAccount(models.Model):
             if "date" in payment and payment["date"]:
                 date = payment["date"].split("T")[0]
 
-            analytic_distribution = self._parse_analytic_distribution(payment, company)
+            analytic_distribution = {}
+            if payment.get("attributes"):
+                for attr in payment.get("attributes"):
+                    val_id = attr.get("customId")
+                    if val_id:
+                        try:
+                            analytic_distribution[str(int(val_id))] = 100.0
+                        except (ValueError, TypeError):
+                            pass
 
             move_vals = {
                 "move_type": "entry",
@@ -263,7 +254,15 @@ class EmbatAccount(models.Model):
     def get_payment_contacts(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT CONTACTS: %s", payment)
         
-        analytic_distribution = self._parse_analytic_distribution(payment, company)
+        analytic_distribution = {}
+        if payment.get("attributes"):
+            for attr in payment.get("attributes"):
+                val_id = attr.get("customId")
+                if val_id:
+                    try:
+                        analytic_distribution[str(int(val_id))] = 100.0
+                    except (ValueError, TypeError):
+                        pass
         
         partner = False
         partner_id_str = payment.get("contactCustomId")
@@ -355,21 +354,43 @@ class EmbatAccount(models.Model):
                     "date": date,
                     "payment_ref": move_payment.name,
                     "partner_id": partner.id,
-                    "amount": move_payment.amount * sign
+                    "amount": move_payment.amount * sign,
+                    "journal_id": journal.id
                 })],
             })
-            st_line.button_post()
+            destination_account = move_payment.destination_account_id
+            counterpart_line = move_payment.move_id.line_ids.filtered(
+                lambda line: line.account_id.id != destination_account.id)
+            if len(counterpart_line) > 1:
+                counterpart_line = counterpart_line.filtered(lambda l: l.account_id.account_type in ('asset_cash', 'asset_current')) or counterpart_line[0]
 
-            counterpart_line = move_payment.line_ids.filtered(
-                lambda line: line.account_id.id == reconcile_account_id.id)
             test_st_line_1 = st_line.line_ids.filtered(
                 lambda line: line.payment_ref == move_payment.name)
-            test_st_line_1.reconcile([{"id": counterpart_line.id}])
-
-            st_line.button_validate_or_action()
+            
+            if test_st_line_1.move_id.state == 'draft':
+                test_st_line_1.move_id.action_post()
+            
+            # Find the suspense line of the statement (the one not matching the bank account)
+            bank_account = journal.default_account_id
+            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+                lambda line: line.account_id.id != bank_account.id)
+            if len(statement_move_line) > 1:
+                statement_move_line = statement_move_line[0]
+            
+            if statement_move_line and counterpart_line:
+                if statement_move_line.account_id.id != counterpart_line.account_id.id:
+                    statement_move_line.with_context(check_move_validity=False).write({
+                        'account_id': counterpart_line.account_id.id
+                    })
+                (statement_move_line + counterpart_line).reconcile()
+                if hasattr(test_st_line_1, 'checked'):
+                    test_st_line_1.checked = True
+                elif hasattr(test_st_line_1.move_id, 'checked'):
+                    test_st_line_1.move_id.checked = True
         except Exception as e:
             message = _("Cannot update EMBAT Payment because: %s") % (e)
             self.sudo().message_post(body=message)
+            raise e
 
         # Mark payment as synchronized in Embat
         self.mark_as_sync(payment["customId"])
@@ -414,7 +435,8 @@ class EmbatAccount(models.Model):
                     "date": date,
                     "payment_ref": payment.name,
                     "partner_id": payment.partner_id.id,
-                    "amount": payment.amount*sign
+                    "amount": payment.amount*sign,
+                    "journal_id": journal.id
                 })],
             })
             st_line.button_post()
@@ -423,7 +445,16 @@ class EmbatAccount(models.Model):
                 lambda line: line.account_id.id == reconcile_account_id.id)
             test_st_line_1 = st_line.line_ids.filtered(
                 lambda line: line.payment_ref == payment.name)
-            test_st_line_1.reconcile([{"id": counterpart_line.id}])
+            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+                lambda line: line.account_id.id != journal.default_account_id.id)
+            if len(statement_move_line) > 1:
+                statement_move_line = statement_move_line[0]
+            if statement_move_line and counterpart_line:
+                if statement_move_line.account_id.id != counterpart_line.account_id.id:
+                    statement_move_line.with_context(check_move_validity=False).write({
+                        'account_id': counterpart_line.account_id.id
+                    })
+                (statement_move_line + counterpart_line).reconcile()
 
             st_line.button_validate_or_action()
         except Exception as e:

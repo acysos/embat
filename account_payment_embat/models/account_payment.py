@@ -61,13 +61,23 @@ class AccountPayment(models.Model):
     def _prepare_embat_payment_data(self):
         self.ensure_one()
         operations = []
-        for payment_line in self.payment_line_ids:
-            operations.append(
-                {
-                    "amount": self.amount,
-                    "customId": f"account.move-{payment_line.move_line_id.move_id.id}",
-                }
-            )
+        if hasattr(self, 'payment_line_ids') and self.payment_line_ids:
+            for payment_line in self.payment_line_ids:
+                if payment_line.move_line_id and payment_line.move_line_id.move_id:
+                    operations.append(
+                        {
+                            "amount": self.amount,
+                            "customId": f"account.move-{payment_line.move_line_id.move_id.id}",
+                        }
+                    )
+        else:
+            for invoice in (self.reconciled_invoice_ids | self.reconciled_bill_ids):
+                operations.append(
+                    {
+                        "amount": self.amount,
+                        "customId": f"account.move-{invoice.id}",
+                    }
+                )
         payment_data = {
             "operations": operations,
             "amount": self.amount,
@@ -148,23 +158,24 @@ class AccountPayment(models.Model):
                     msg = _("Payment sent to Embat but no ID returned.")
                     embat_data._create_log("WARNING", "PAYMENTS_WARNING", msg, self)
 
-                for payment_line in self.payment_line_ids:
-                    move = payment_line.move_line_id.move_id
-                    if not move.embat_id:
-                        continue
-                    endpoint = f"operations/{embat_data.embat_company_id}/account.move-{move.id}"
-                    request_type = "patch"
-                    move_data = self._prepare_embat_operation_data(move)
-                    try:
-                        response, content = embat_data._embat_request(
-                            endpoint, self, request_type=request_type, data=move_data
-                        )
-                        if response.ok:
-                            msg = _("Operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
-                            embat_data._create_log("INFO", "OPERATIONS_INFO", msg, self)
-                    except Exception as e:
-                        msg = _("Failed to sync operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
-                        embat_data._create_log("ERROR", "OPERATIONS_ERROR", msg, self)
+                if hasattr(self, 'payment_line_ids') and self.payment_line_ids:
+                    for payment_line in self.payment_line_ids:
+                        move = payment_line.move_line_id.move_id
+                        if not move.embat_id:
+                            continue
+                        endpoint = f"operations/{embat_data.embat_company_id}/account.move-{move.id}"
+                        request_type = "patch"
+                        move_data = self._prepare_embat_operation_data(move)
+                        try:
+                            response, content = embat_data._embat_request(
+                                endpoint, self, request_type=request_type, data=move_data
+                            )
+                            if response.ok:
+                                msg = _("Operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
+                                embat_data._create_log("INFO", "OPERATIONS_INFO", msg, self)
+                        except Exception as e:
+                            msg = _("Failed to sync operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
+                            embat_data._create_log("ERROR", "OPERATIONS_ERROR", msg, self)
                     
                     
         except Exception as e:
