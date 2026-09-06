@@ -13,6 +13,19 @@ class OnlineBankStatementProviderEmbat(models.Model):
     _name = "online.bank.statement.provider"
     _inherit = "online.bank.statement.provider"
 
+    journal_id = fields.Many2one(
+        comodel_name="account.journal",
+        required=True,
+        readonly=False,
+        ondelete="cascade",
+        domain=[("type", "=", "bank")],
+    )
+    service = fields.Selection(
+        selection=lambda self: self._selection_service(),
+        required=True,
+        readonly=False,
+    )
+
     embat_data_id = fields.Many2one(
         comodel_name="embat.data",
         string="Embat Data",

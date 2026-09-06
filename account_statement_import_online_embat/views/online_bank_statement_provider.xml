@@ -9,6 +9,12 @@
         <field name="model">online.bank.statement.provider</field>
         <field name="inherit_id" ref="account_statement_import_online.online_bank_statement_provider_form" />
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='journal_id']" position="attributes">
+                <attribute name="readonly">0</attribute>
+            </xpath>
+            <xpath expr="//field[@name='service']" position="attributes">
+                <attribute name="readonly">0</attribute>
+            </xpath>
             <xpath expr="//group[@name='main']" position="inside">
                 <group name="embat" string="Embat" attrs="{'invisible': [('service', '!=', 'embat')]}">
                     <field name="embat_data_id" attrs="{'required': [('service', '=', 'embat')]}" />
