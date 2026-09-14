@@ -14,7 +14,6 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-
 class EmbatAccount(models.Model):
     _name = "embat.data"
     _inherit = ['mail.thread', 'mail.activity.mixin']
@@ -143,7 +142,7 @@ class EmbatAccount(models.Model):
             'response': response.text,
         }
         _logger.info(json.dumps(log_vals, indent=4))
-        self.env['embat.api.log'].create(log_vals)
+        self.env['embat.api.log'].sudo().create(log_vals)
 
         try:
             response.raise_for_status()
@@ -163,7 +162,7 @@ class EmbatAccount(models.Model):
                     "Invalid JSON response from Embat API: %s" % response.text
                 )
             )
-        self.env['embat.api.log'].create({
+        self.env['embat.api.log'].sudo().create({
             'name': url,
             'model': model._name,
             'res_id': model.id if isinstance(model.id, int) and type(model.id).__name__ != 'NewId' else 0,

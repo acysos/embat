@@ -1,4 +1,6 @@
-from odoo.tests.common import TransactionCase
+from unittest.mock import patch
+
+from odoo.tests.common import TransactionCase, new_test_user
 
 class TestBaseEmbat(TransactionCase):
     def setUp(self):
@@ -12,6 +14,34 @@ class TestBaseEmbat(TransactionCase):
 
     def test_module_loaded(self):
         self.assertTrue(True)
+
+    def test_request_logs_without_settings_access(self):
+        user = new_test_user(
+            self.env, login="embat_accountant",
+            groups="account.group_account_manager",
+        )
+        provider = self.embat_data.with_user(user)
+        self.assertFalse(user.has_group("base.group_system"))
+        self.assertFalse(
+            self.env["embat.api.log"].with_user(user).check_access_rights(
+                "create", raise_exception=False,
+            )
+        )
+        with patch.object(type(provider), "_embat_get_headers", return_value={}), patch(
+            "odoo.addons.base_embat.models.embat_data.requests.post"
+        ) as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.text = '{"id": "test_operation"}'
+            mock_post.return_value.json.return_value = {"id": "test_operation"}
+            response, content = provider._embat_request(
+                "operations/test_company", provider, request_type="post", data={},
+            )
+        self.assertEqual(content, {"id": "test_operation"})
+        logs = self.env["embat.api.log"].sudo().search([
+            ("model", "=", provider._name), ("res_id", "=", provider.id),
+        ])
+        self.assertEqual(len(logs), 2)
+        self.assertEqual(set(logs.mapped("create_uid").ids), {user.id})
 
     def test_get_api_url_test(self):
         """Test retrieving the test API URL."""
