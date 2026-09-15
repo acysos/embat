@@ -8,20 +8,20 @@
             <notebook position="inside">
                 <page string="Embat Mappings" groups="base.group_no_one">
                     <field name="embat_mapping_ids" readonly="1">
-                        <list editable="bottom">
+                        <tree editable="bottom">
                             <field name="company_id"/>
                             <field name="embat_id"/>
-                        </list>
+                        </tree>
                     </field>
                 </page>
                 <page string="Embat API Logs" groups="base.group_no_one">
                     <field name="embat_api_log_ids" readonly="1">
-                        <list>
+                        <tree>
                             <field name="create_date"/>
                             <field name="request_type"/>
                             <field name="name"/>
                             <field name="response"/>
-                        </list>
+                        </tree>
                     </field>
                 </page>
             </notebook>
