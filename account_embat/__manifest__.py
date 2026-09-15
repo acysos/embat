@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 {
     "name": "Account: Embat",
-    "version": "17.0.1.0.5",
+    "version": "17.0.1.0.6",
     "category": "Account",
     "website": "https://github.com/OCA/account-financial-tools",
     "author": "Acysos S.L., Odoo Community Association (OCA)",
@@ -12,6 +12,7 @@
         "base_embat", "account",
     ],
     "data": [
+        "security/ir.model.access.csv",
         "views/res_config_settings_views.xml",
         "views/account_journal_views.xml",
         "views/account_move_views.xml",
