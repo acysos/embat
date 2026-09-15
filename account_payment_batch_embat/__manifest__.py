@@ -2,7 +2,7 @@
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 {
     "name": "Account Payment Batch Embat",
-    "version": "17.0.1.0.0",
+    "version": "17.0.1.0.1",
     "category": "Account",
     "author": "Acysos S.L., Odoo Community Association (OCA)",
     "license": "AGPL-3",
