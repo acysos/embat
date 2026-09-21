@@ -89,7 +89,7 @@ class OnlineBankStatementProviderEmbat(models.Model):
         """Method for requesting Embat transactions."""
         now = fields.Datetime.now()
         if now > date_since and now < date_until:
-            date_until = now
+            date_until = now + datetime.timedelta(days=1)
         params = {}
         if self.embat_date_type == "valued_date":
             params.update({
