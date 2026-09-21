@@ -63,6 +63,14 @@ class AccountMoveLine(models.Model):
             for line in self:
                 if line.move_id.state != 'posted':
                     continue
+                # Do not send if pending reconciliation (has suspense account)
+                has_suspense = any(
+                    l.account_id and line.journal_id and hasattr(line.journal_id, 'suspense_account_id') and l.account_id == line.journal_id.suspense_account_id
+                    for l in line.move_id.line_ids
+                )
+                if has_suspense:
+                    continue
+
                 embat_data = line.env.company.embat_data_id
                 if not embat_data:
                     raise UserError(_("Please configure the Embat data first."))
@@ -143,9 +151,17 @@ class AccountMoveLine(models.Model):
         """Override write method to load Embat data after move line update."""
         res = super(AccountMoveLine, self).write(vals)
         if self.env.company.use_embat and 'embat_id' not in vals:
+            lines_to_send = self.env['account.move.line']
             for line in self:
-                if line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
-                    line._load_embat_move_line_asset()
+                if line.journal_id and line.journal_id.embat_id:
+                    if line.account_id.account_type in ['asset_cash']:
+                        lines_to_send |= line
+                    elif line.move_id:
+                        asset_lines = line.move_id.line_ids.filtered(
+                            lambda l: l.account_id.account_type in ['asset_cash']
+                        )
+                        lines_to_send |= asset_lines
+            lines_to_send._load_embat_move_line_asset()
         return res
 
     def unlink(self):

@@ -151,7 +151,15 @@ class EmbatAccount(models.Model):
                 new_endpoint = endpoint.rsplit('/', 1)[0]
                 _logger.warning("Resource not found (404) during PATCH on %s. Retrying as POST on %s", endpoint, new_endpoint)
                 return self._embat_request(new_endpoint, model, request_type="post", params=params, data=data)
-            raise e
+            error_msg = _("Embat API Error (%(status_code)s): %(reason)s\nURL: %(url)s\nData: %(data)s\nResponse: %(response)s") % {
+                'status_code': response.status_code,
+                'reason': response.reason,
+                'url': response.url,
+                'data': json.dumps(data, indent=2) if data else 'None',
+                'response': response.text,
+            }
+            _logger.error(error_msg)
+            raise UserError(error_msg) from e
         if response.status_code == 204:
             return response, content
         try:
