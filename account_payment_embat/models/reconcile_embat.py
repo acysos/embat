@@ -115,7 +115,7 @@ class EmbatAccount(models.Model):
                     if analytic_account_id:
                         payment_id.line_ids.write({'analytic_account_id': analytic_account_id})
                     self.reconcile_payment(
-                        payment_id, move, payment.journal_id, company.id, date)
+                        payment_id, move, journal, company.id, date, transaction_id=payment["transactionId"])
                     self.mark_as_sync(operation["customId"])
             else:
                 move_payment = payment_env.search([
@@ -182,7 +182,7 @@ class EmbatAccount(models.Model):
         _logger.info("DEBUG EMBAT PAYMENT ACCOUNTING: %s", payment)
         account_debit_id = self.env["account.account"].search([("code", "=", payment["accountingCode"]), ("company_id", "=", company.id)], limit=1)
         if not account_debit_id:
-            account_id = self.default_payment_account
+            account_debit_id = self.default_payment_account
         journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
         if not journal:
             message = _("Journal not found for Embat ProudctId: %s" % payment["productId"])
@@ -211,6 +211,26 @@ class EmbatAccount(models.Model):
                 "line_ids": [],
                 "embat_transaction_id": payment["transactionId"],
             }
+
+            transaction_id = payment.get("transactionId")
+            st_line = self.env["account.bank.statement.line"].search(
+                [("unique_import_id", "=", transaction_id), ("company_id", "=", company.id)], limit=1
+            ) if transaction_id else False
+
+            if st_line:
+                if st_line.state == 'draft':
+                    st_line.statement_id.button_post()
+                
+                reconcile_vals = [{"account_id": account_debit_id.id}]
+                if analytic_account_id:
+                    reconcile_vals[0]["analytic_account_id"] = analytic_account_id
+                
+                st_line.reconcile(reconcile_vals)
+                if hasattr(st_line.statement_id, 'button_validate_or_action'):
+                    st_line.statement_id.button_validate_or_action()
+                
+                self.mark_as_sync(payment["customId"])
+                return
 
             if payment.get("operations"):
                 for operation in payment["operations"]:
@@ -347,27 +367,42 @@ class EmbatAccount(models.Model):
                 reconcile_account_id = journal.company_id.account_journal_payment_credit_account_id
                 sign = -1
 
-            st_line = self.env["account.bank.statement"].create({
-                "name": payment.get("concept") or move_payment.name,
-                "journal_id": journal.id,
-                "company_id": company.id,
-                "date": date,
-                "line_ids": [(0, 0, {
+            transaction_id = payment.get("transactionId")
+            test_st_line_1 = self.env["account.bank.statement.line"].search(
+                [("unique_import_id", "=", transaction_id), ("company_id", "=", company.id)], limit=1
+            ) if transaction_id else False
+
+            if not test_st_line_1:
+                st_line = self.env["account.bank.statement"].create({
+                    "name": payment.get("concept") or move_payment.name,
+                    "journal_id": journal.id,
+                    "company_id": company.id,
                     "date": date,
+                    "line_ids": [(0, 0, {
+                        "date": date,
+                        "payment_ref": move_payment.name,
+                        "partner_id": partner.id,
+                        "amount": move_payment.amount * sign,
+                        "unique_import_id": transaction_id,
+                    })],
+                })
+                st_line.button_post()
+                test_st_line_1 = st_line.line_ids.filtered(
+                    lambda line: line.payment_ref == move_payment.name)
+            else:
+                test_st_line_1.write({
                     "payment_ref": move_payment.name,
                     "partner_id": partner.id,
-                    "amount": move_payment.amount * sign
-                })],
-            })
-            st_line.button_post()
+                })
+                if test_st_line_1.state == 'draft':
+                    test_st_line_1.statement_id.button_post()
 
             counterpart_line = move_payment.line_ids.filtered(
                 lambda line: line.account_id.id == reconcile_account_id.id)
-            test_st_line_1 = st_line.line_ids.filtered(
-                lambda line: line.payment_ref == move_payment.name)
             test_st_line_1.reconcile([{"id": counterpart_line.id}])
 
-            st_line.button_validate_or_action()
+            if hasattr(test_st_line_1.statement_id, 'button_validate_or_action'):
+                test_st_line_1.statement_id.button_validate_or_action()
         except Exception as e:
             message = _("Cannot update EMBAT Payment because: %s") % (e)
             self.sudo().message_post(body=message)
@@ -398,7 +433,7 @@ class EmbatAccount(models.Model):
                 payment.name, move.name, str(e))
             _logger.error(message)
 
-    def reconcile_payment(self, payment, move, journal, company, date=fields.Date.today()):
+    def reconcile_payment(self, payment, move, journal, company, date=fields.Date.today(), transaction_id=False):
         try:
             sign = -1
             reconcile_account_id = journal.company_id.account_journal_payment_credit_account_id
@@ -406,27 +441,45 @@ class EmbatAccount(models.Model):
                 reconcile_account_id = journal.company_id.account_journal_payment_debit_account_id
                 sign = 1
 
-            st_line = self.env["account.bank.statement"].create({
-                "name": move.name,
-                "journal_id": journal.id,
-                "company_id": company.id,
-                "date": date,
-                "line_ids": [(0, 0, {
+            company_id = company.id if isinstance(company, models.Model) else company
+
+            test_st_line_1 = False
+            if transaction_id:
+                test_st_line_1 = self.env["account.bank.statement.line"].search(
+                    [("unique_import_id", "=", transaction_id), ("company_id", "=", company_id)], limit=1
+                )
+
+            if not test_st_line_1:
+                st_line = self.env["account.bank.statement"].create({
+                    "name": move.name,
+                    "journal_id": journal.id,
+                    "company_id": company_id,
                     "date": date,
+                    "line_ids": [(0, 0, {
+                        "date": date,
+                        "payment_ref": payment.name,
+                        "partner_id": payment.partner_id.id,
+                        "amount": payment.amount*sign,
+                        "unique_import_id": transaction_id or payment.embat_transaction_id or False,
+                    })],
+                })
+                st_line.button_post()
+                test_st_line_1 = st_line.line_ids.filtered(
+                    lambda line: line.payment_ref == payment.name)
+            else:
+                test_st_line_1.write({
                     "payment_ref": payment.name,
                     "partner_id": payment.partner_id.id,
-                    "amount": payment.amount*sign
-                })],
-            })
-            st_line.button_post()
+                })
+                if test_st_line_1.state == 'draft':
+                    test_st_line_1.statement_id.button_post()
 
             counterpart_line = payment.line_ids.filtered(
                 lambda line: line.account_id.id == reconcile_account_id.id)
-            test_st_line_1 = st_line.line_ids.filtered(
-                lambda line: line.payment_ref == payment.name)
             test_st_line_1.reconcile([{"id": counterpart_line.id}])
 
-            st_line.button_validate_or_action()
+            if hasattr(test_st_line_1.statement_id, 'button_validate_or_action'):
+                test_st_line_1.statement_id.button_validate_or_action()
         except Exception as e:
             message = _("Cannot update EMBAT Payment because: %s" % (e))
             self.sudo().message_post(
