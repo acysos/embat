@@ -78,104 +78,174 @@ class EmbatAccount(models.Model):
                         pass
         return analytic_distribution
 
+
     def get_payment_operation(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT OPERATION: %s", payment)
         move_env = self.env["account.move"]
-        payment_env = self.env["account.payment"]
+        _logger.info("product id: %s", payment["productId"])
         journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
+        _logger.info("Journal: %s", journal)
 
         if not journal:
             message = _("Journal not found for Embat ProudctId: %s" % payment["productId"])
-            company.sudo().message_post(
-                body=message
-            )
+            company.sudo().message_post(body=message)
             return
 
         analytic_distribution = self._parse_analytic_distribution(payment, company)
 
-        for operation in payment["operations"]:
-            move = move_env.search([("id", "=", int(operation["customId"].split("-")[1]))])
-            _logger.info("DEBUG EMBAT MOVE: %s", move)
-            _logger.info("DEBUG EMBAT MOVE Transaction ID: %s", move.embat_transaction_id)
+        date = fields.Date.today()
+        if "date" in payment and payment["date"]:
+            date = payment["date"].split("T")[0]
 
-            date = fields.Date.today()
-            if "date" in payment and payment["date"]:
-                date = payment["date"].split("T")[0]
+        # 1. FIND THE BANK STATEMENT LINE
+        transaction_id = payment.get("transactionId")
+        _logger.info("Searching st_line by unique_import_id ilike %s for company %s", transaction_id, company.id)
+        test_st_line_1 = self.env["account.bank.statement.line"].search(
+            [("unique_import_id", "ilike", transaction_id), ("company_id", "=", company.id)], limit=1
+        ) if transaction_id else False
+        _logger.info("test_st_line_1: %s", test_st_line_1)
 
-            if move.payment_state == "paid":
-                self.mark_as_sync(operation["customId"])
+        if not test_st_line_1:
+            amount = payment.get("amount") or payment.get("accountingAmount", 0)
+            if not amount and payment.get("operations"):
+                amount = sum([op.get("paymentAmount", 0) for op in payment.get("operations")])
+            
+            domain_fallback = [
+                ("amount", "in", [amount, amount * -1]),
+                ("date", "=", date),
+                ("journal_id", "=", journal.id),
+                ("company_id", "=", company.id),
+                ("is_reconciled", "=", False)
+            ]
+            _logger.info("Fallback search domain: %s", domain_fallback)
+            st_lines = self.env["account.bank.statement.line"].search(domain_fallback)
+            _logger.info("Fallback search found %s lines", len(st_lines))
+            if len(st_lines) == 1:
+                test_st_line_1 = st_lines[0]
+            elif len(st_lines) > 1:
+                st_lines_concept = st_lines.filtered(lambda l: l.payment_ref == payment.get("concept"))
+                _logger.info("Filtered by concept %s found %s lines", payment.get("concept"), len(st_lines_concept))
+                if len(st_lines_concept) == 1:
+                    test_st_line_1 = st_lines_concept[0]
 
-            if move.payment_state == "in_payment":
-                payments_ids = self.env["account.payment"].search(
-                    [("state", "=", "posted")]).filtered(
-                    lambda m: move.id in m.reconciled_invoice_ids.ids)
+        if not test_st_line_1:
+            _logger.warning("Statement line not found for operation %s", payment.get("id"))
+            message = _("Statement line not found for operation payment %s") % payment.get("id")
+            company.sudo().message_post(body=message)
+            return
+        else:
+            _logger.info("Found st_line %s", test_st_line_1.id)
 
-                for payment_id in payments_ids:
-                    if analytic_distribution:
-                        payment_id.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
-                    self.reconcile_payment(
-                        payment_id, move, journal, company.id, date, transaction_id=payment["transactionId"])
-                    self.mark_as_sync(operation["customId"])
+        if test_st_line_1.move_id.state == 'draft':
+            test_st_line_1.move_id.action_post()
+            
+        bank_account = journal.default_account_id
+
+        # 2. COLLECT ALL INVOICE LINES TO RECONCILE
+        invoice_lines_to_reconcile = self.env['account.move.line']
+        
+        for operation in payment["operations"]:            
+            custom_id_parts = operation.get("customId", "").split("-")
+            if len(custom_id_parts) < 2:
+                continue
+                
+            move = move_env.search([("id", "=", int(custom_id_parts[1]))])
+            _logger.info("DEBUG EMBAT MOVE: %s", move.name if move else "None")
+            
+            if move:
+                transaction_id_val = payment.get("transactionId") or ""
+                if not move.embat_transaction_id:
+                    move.embat_transaction_id = transaction_id_val
+                elif transaction_id_val not in move.embat_transaction_id.split(","):
+                    move.embat_transaction_id += "," + transaction_id_val
+
+                if move.state == 'posted' and move.payment_state != 'paid':
+                    counterpart_line = move.line_ids.filtered(
+                        lambda line: line.account_id.account_type in ('asset_receivable', 'liability_payable') and not line.reconciled
+                    )
+                    if counterpart_line:
+                        invoice_lines_to_reconcile += counterpart_line[0]
+
+        # 3. RECONCILE ALL
+        if invoice_lines_to_reconcile:
+            target_account = invoice_lines_to_reconcile[0].account_id
+            
+            if test_st_line_1.move_id.state == 'posted':
+                test_st_line_1.move_id.button_draft()
+                
+            test_st_line_1.with_context(check_move_validity=False).write({
+                "payment_ref": payment.get("concept", test_st_line_1.payment_ref),
+                "partner_id": invoice_lines_to_reconcile[0].partner_id.id,
+            })
+            
+            # Re-fetch suspense line because writing to test_st_line_1 might recreate move lines
+            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+                lambda line: line.account_id.id != bank_account.id and not line.reconciled
+            )
+            if len(statement_move_line) > 1:
+                suspense = statement_move_line.filtered(lambda l: l.account_id.account_type not in ('asset_receivable', 'liability_payable'))
+                statement_move_line = suspense[0] if suspense else statement_move_line[0]
+            elif len(statement_move_line) == 1:
+                statement_move_line = statement_move_line[0]
             else:
-                move_payment = payment_env.search([
-                    ("embat_id", "=", False), 
-                    ("company_id", "=", company.id),
-                    ("memo", "=", move.name),
-                ])
-                if move_payment:
-                    if analytic_distribution:
-                        move_payment.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
+                statement_move_line = False
 
-                    move_payment.embat_id = payment["transactionId"]
-                    if move.embat_transaction_id and payment["transactionId"] not in move.embat_transaction_id.split(","):
-                        if move.embat_transaction_id:
-                            move.embat_transaction_id += "," + payment["transactionId"] 
-                        else:
-                            move.embat_transaction_id = payment["transactionId"]
-                    self.reconciliate_payment_embat(
-                        move_payment, move, move_payment.journal_id, company, date)
-                    self.mark_as_sync(payment["customId"])
+            if statement_move_line and statement_move_line.account_id.id != target_account.id:
+                op_amount = abs(payment.get("amount") or payment.get("accountingAmount") or 0)
+                if not op_amount and payment.get("operations"):
+                    op_amount = abs(sum([op.get("paymentAmount", 0) for op in payment.get("operations")]))
+                st_balance = statement_move_line.balance
+                
+                if abs(st_balance) > op_amount + 0.001:
+                    alloc_debit = op_amount if st_balance > 0 else 0.0
+                    alloc_credit = op_amount if st_balance < 0 else 0.0
+                    rem_debit = statement_move_line.debit - alloc_debit
+                    rem_credit = statement_move_line.credit - alloc_credit
+                    alloc_curr = statement_move_line.amount_currency * (alloc_debit - alloc_credit) / st_balance if st_balance else 0.0
+                    rem_curr = statement_move_line.amount_currency - alloc_curr
+                    
+                    statement_move_line.with_context(check_move_validity=False).write({
+                        'debit': rem_debit,
+                        'credit': rem_credit,
+                        'amount_currency': rem_curr,
+                    })
+                    new_line_vals = {
+                        'move_id': statement_move_line.move_id.id,
+                        'account_id': target_account.id,
+                        'partner_id': invoice_lines_to_reconcile[0].partner_id.id if invoice_lines_to_reconcile else False,
+                        'name': statement_move_line.name,
+                        'debit': alloc_debit,
+                        'credit': alloc_credit,
+                        'amount_currency': alloc_curr,
+                        'currency_id': statement_move_line.currency_id.id,
+                        'analytic_distribution': analytic_distribution,
+                    }
+                    statement_move_line = self.env['account.move.line'].with_context(check_move_validity=False).create(new_line_vals)
                 else:
-                    if not move.embat_transaction_id:
-                        move.embat_transaction_id = payment["transactionId"]
-                    elif payment["transactionId"] not in move.embat_transaction_id.split(","):
-                        move.embat_transaction_id += "," + payment["transactionId"]
+                    statement_move_line.with_context(check_move_validity=False).write({
+                        'account_id': target_account.id,
+                        'analytic_distribution': analytic_distribution
+                    })
+            
+            if test_st_line_1.move_id.state == 'draft':
+                test_st_line_1.move_id.action_post()
+            
+            try:
+                if statement_move_line:
+                    (invoice_lines_to_reconcile + statement_move_line).reconcile()
+                if hasattr(test_st_line_1, 'checked'):
+                    test_st_line_1.checked = True
+                elif hasattr(test_st_line_1.move_id, 'checked'):
+                    test_st_line_1.move_id.checked = True
+                _logger.info("Successfully reconciled statement line %s with invoices", test_st_line_1.id)
+            except Exception as e:
+                _logger.error("Error reconciling statement %s: %s", test_st_line_1.id, e)
+                message = _("Error reconciling operation payment %s: %s") % (payment.get("id"), str(e))
+                company.sudo().message_post(body=message)
+        _logger.info("=============================================")
+        _logger.info("CustomId: %s", payment["customId"])
+        self.mark_as_sync(payment["customId"])
 
-                    if move.state == 'posted':
-                        payment_vals = {
-                            "payment_date": date,
-                            "amount": abs(operation["paymentAmount"]),
-                            "company_id": company.id,
-                            "journal_id": journal.id,
-                            "payment_difference_handling": "open",
-                        }
-
-                        move_payment = self.env["account.payment.register"].with_context(
-                            active_model="account.move",
-                            active_ids=move.ids
-                        ).create(payment_vals)._create_payments()
-
-                        if analytic_distribution:
-                            move_payment.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
-
-                        move_payment.embat_id = payment["transactionId"]
-                        move_payment.embat_transaction_id = (
-                            payment["transactionId"])
-
-                        # Force update of lines to send transactionId
-                        payment_lines = move_payment.move_id.line_ids.filtered(
-                            lambda line: line.account_id.account_type in
-                            ['asset_cash'] and line.journal_id.embat_id)
-                        payment_lines._load_embat_move_line_asset()
-
-                        self.reconciliate_payment_embat(
-                            move_payment, move, journal, company, date)
-                        self.mark_as_sync(payment["customId"])
-                    else:
-                        _logger.info(
-                            "Invoice %s is not posted. Saved Embat Transaction ID "
-                            "but skipping payment creation.", move.name
-                        )
 
     def get_payment_accounting(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT ACCOUNTING: %s", payment)
@@ -198,90 +268,101 @@ class EmbatAccount(models.Model):
 
             analytic_distribution = self._parse_analytic_distribution(payment, company)
 
-            move_vals = {
-                "move_type": "entry",
-                "ref": payment["concept"],
-                "is_move_sent": False,
-                "state": "draft",
-                "journal_id": journal.id,
-                "company_id": company.id,
-                "date": date,
-                "name": "/",
-                "line_ids": [],
-                "embat_transaction_id": payment["transactionId"],
-            }
-
             transaction_id = payment.get("transactionId")
+            _logger.info("Searching st_line by unique_import_id ilike %s for company %s", transaction_id, company.id)
             st_line = self.env["account.bank.statement.line"].search(
-                [("unique_import_id", "=", transaction_id), ("company_id", "=", company.id)], limit=1
+                [("unique_import_id", "ilike", transaction_id), ("company_id", "=", company.id)], limit=1
             ) if transaction_id else False
+            _logger.info("st_line %s", st_line.id if st_line else "Not found")
+
+            if not st_line:
+                amount = payment.get("accountingAmount", 0)
+                if not amount and payment.get("operations"):
+                    amount = sum([op.get("paymentAmount", 0) for op in payment.get("operations")])
+                
+                domain_fallback = [
+                    ("amount", "=", amount),
+                    ("date", "=", date),
+                    ("journal_id", "=", journal.id),
+                    ("company_id", "=", company.id),
+                    ("is_reconciled", "=", False)
+                ]
+                _logger.info("Fallback search domain: %s", domain_fallback)
+                st_lines = self.env["account.bank.statement.line"].search(domain_fallback)
+                _logger.info("Fallback search found %s lines", len(st_lines))
+                if len(st_lines) == 1:
+                    st_line = st_lines[0]
+                elif len(st_lines) > 1:
+                    st_lines_concept = st_lines.filtered(lambda l: l.payment_ref == payment.get("concept"))
+                    _logger.info("Filtered by concept %s found %s lines", payment.get("concept"), len(st_lines_concept))
+                    if len(st_lines_concept) == 1:
+                        st_line = st_lines_concept[0]
+
+            if not st_line:
+                _logger.warning("Statement line not found for payment %s", payment.get("id"))
+                message = _("Statement line not found for payment %s") % payment.get("id")
+                company.sudo().message_post(body=message)
+                return
+            else:
+                _logger.info("Found st_line %s", st_line.id)
 
             if st_line:
                 if st_line.move_id.state == 'draft':
                     st_line.move_id.action_post()
                 bank_account = journal.default_account_id
                 statement_move_line = st_line.move_id.line_ids.filtered(
-                    lambda line: line.account_id.id != bank_account.id
+                    lambda line: line.account_id.id != bank_account.id and not line.reconciled
                 )
                 if len(statement_move_line) > 1:
+                    suspense = statement_move_line.filtered(lambda l: l.account_id.account_type not in ('asset_receivable', 'liability_payable'))
+                    statement_move_line = suspense[0] if suspense else statement_move_line[0]
+                elif len(statement_move_line) == 1:
                     statement_move_line = statement_move_line[0]
+                else:
+                    statement_move_line = False
+
                 if statement_move_line:
                     # The statement_move_line is the suspense line, so its account should be replaced by the accounting code sent by Embat (account_debit_id).
-                    statement_move_line.with_context(check_move_validity=False).write({
-                        'account_id': account_debit_id.id,
-                        'analytic_distribution': analytic_distribution,
-                    })
+                    # Eliminamos el button_draft() para no borrar las conciliaciones parciales existentes
+                    
+                    op_amount = abs(payment.get("accountingAmount") or payment.get("amount") or 0)
+                    st_balance = statement_move_line.balance
+                    
+                    if abs(st_balance) > op_amount + 0.001:
+                        alloc_debit = op_amount if st_balance > 0 else 0.0
+                        alloc_credit = op_amount if st_balance < 0 else 0.0
+                        rem_debit = statement_move_line.debit - alloc_debit
+                        rem_credit = statement_move_line.credit - alloc_credit
+                        alloc_curr = statement_move_line.amount_currency * (alloc_debit - alloc_credit) / st_balance if st_balance else 0.0
+                        rem_curr = statement_move_line.amount_currency - alloc_curr
+                        
+                        statement_move_line.with_context(check_move_validity=False).write({
+                            'debit': rem_debit,
+                            'credit': rem_credit,
+                            'amount_currency': rem_curr,
+                        })
+                        new_line_vals = {
+                            'move_id': statement_move_line.move_id.id,
+                            'account_id': account_debit_id.id,
+                            'name': statement_move_line.name,
+                            'debit': alloc_debit,
+                            'credit': alloc_credit,
+                            'amount_currency': alloc_curr,
+                            'currency_id': statement_move_line.currency_id.id,
+                            'analytic_distribution': analytic_distribution,
+                        }
+                        self.env['account.move.line'].with_context(check_move_validity=False).create(new_line_vals)
+                    else:
+                        statement_move_line.with_context(check_move_validity=False).write({
+                            'account_id': account_debit_id.id,
+                            'analytic_distribution': analytic_distribution,
+                        })
+                    if statement_move_line.move_id.state == 'draft':
+                        statement_move_line.move_id.action_post()
                 self.mark_as_sync(payment["customId"])
                 return
 
-            if payment.get("operations"):
-                for operation in payment["operations"]:
-                    # Use operation amount or fallback to payment logic if needed, but schema says paymentAmount exists
-                    amount = operation.get("paymentAmount", 0)
-                    concept = operation.get("concept", payment["concept"])
-                    
-                    move_vals["line_ids"].append((0, 0, {
-                        "name": concept,
-                        "partner_id": False,
-                        "account_id": account_credit_id.id,
-                        "credit": amount * -1 if amount < 0 else 0,
-                        "debit": amount if amount > 0 else 0,
-                        "currency_id": currency_id,
-                        "analytic_distribution": analytic_distribution,
-                    }))
-                    move_vals["line_ids"].append((0, 0, {
-                        "name": concept,
-                        "partner_id": False,
-                        "account_id": account_debit_id.id,
-                        "credit": amount if amount > 0 else 0,
-                        "debit": amount * -1 if amount < 0 else 0,
-                        "currency_id": currency_id,
-                        "analytic_distribution": analytic_distribution,
-                    }))
-            else:
-                amount = payment.get("accountingAmount", 0)
-                move_vals["line_ids"].append((0, 0, {
-                    "name": payment["concept"],
-                    "partner_id": False,
-                    "account_id": account_credit_id.id,
-                    "credit": amount * -1 if amount < 0 else 0,
-                    "debit": amount if amount > 0 else 0,
-                    "currency_id": currency_id,
-                    "analytic_distribution": analytic_distribution,
-                }))
-                move_vals["line_ids"].append((0, 0, {
-                    "name": payment["concept"],
-                    "partner_id": False,
-                    "account_id": account_debit_id.id,
-                    "credit": amount if amount > 0 else 0,
-                    "debit": amount * -1 if amount < 0 else 0,
-                    "currency_id": currency_id,
-                    "analytic_distribution": analytic_distribution,
-                }))
 
-            move_id = self.env["account.move"].create(move_vals)
-            move_id.action_post()
-            self.mark_as_sync(payment["customId"])
 
     def get_payment_contacts(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT CONTACTS: %s", payment)
@@ -333,106 +414,122 @@ class EmbatAccount(models.Model):
             return
 
         payment_type = "inbound" if amount > 0 else "outbound"
-        partner_type = "customer" if amount > 0 else "supplier"
         destination_account = partner.property_account_receivable_id if payment_type == "inbound" else partner.property_account_payable_id
 
-        payment_vals = {
-            "payment_type": payment_type,
-            "partner_type": partner_type,
+        # FIND STATEMENT LINE
+        transaction_id = payment.get("transactionId")
+        _logger.info("Searching st_line by unique_import_id ilike %s for company %s", transaction_id, company.id)
+        test_st_line_1 = self.env["account.bank.statement.line"].search(
+            [("unique_import_id", "ilike", transaction_id), ("company_id", "=", company.id)], limit=1
+        ) if transaction_id else False
+
+        if not test_st_line_1:
+            st_line_amount = abs(amount) * (1 if payment_type == "inbound" else -1)
+            domain_fallback = [
+                ("amount", "in", [st_line_amount, st_line_amount * -1]),
+                ("date", "=", date),
+                ("journal_id", "=", journal.id),
+                ("company_id", "=", company.id),
+                ("is_reconciled", "=", False)
+            ]
+            _logger.info("Fallback search domain: %s", domain_fallback)
+            st_lines = self.env["account.bank.statement.line"].search(domain_fallback)
+            _logger.info("Fallback search found %s lines", len(st_lines))
+            if len(st_lines) == 1:
+                test_st_line_1 = st_lines[0]
+            elif len(st_lines) > 1:
+                st_lines_concept = st_lines.filtered(lambda l: l.payment_ref == payment.get("concept"))
+                _logger.info("Filtered by concept %s found %s lines", payment.get("concept"), len(st_lines_concept))
+                if len(st_lines_concept) == 1:
+                    test_st_line_1 = st_lines_concept[0]
+
+        if not test_st_line_1:
+            _logger.warning("Statement line not found for contact payment %s", payment.get("id"))
+            message = _("Statement line not found for contact payment %s") % payment.get("id")
+            company.sudo().message_post(body=message)
+            return
+        else:
+            _logger.info("Found st_line %s", test_st_line_1.id)
+
+        # UPDATE STATEMENT LINE
+        bank_account = journal.default_account_id
+        
+        if test_st_line_1.move_id.state == 'posted':
+            test_st_line_1.move_id.button_draft()
+            
+        test_st_line_1.with_context(check_move_validity=False).write({
+            "payment_ref": payment.get("concept", test_st_line_1.payment_ref),
             "partner_id": partner.id,
-            "amount": abs(amount),
-            "journal_id": journal.id,
-            "date": date,
-            "memo": payment.get("concept") or "",
-            "embat_id": payment["transactionId"],
-            "embat_transaction_id": payment["transactionId"],
-            "destination_account_id": destination_account.id,
-        }
-
-        move_payment = self.env["account.payment"].create(payment_vals)
-        if analytic_distribution:
-            move_payment.move_id.line_ids.write({'analytic_distribution': analytic_distribution})
-        move_payment.action_post()
-
-        # Force update of lines to send transactionId
-        payment_lines = move_payment.move_id.line_ids.filtered(
-            lambda line: line.account_id.account_type in ['asset_cash'] and line.journal_id.embat_id
+        })
+        
+        statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+            lambda line: line.account_id.id != bank_account.id and not line.reconciled
         )
-        payment_lines._load_embat_move_line_asset()
-
-        # Reconcile against bank statement line
-        try:
-            if payment_type == "inbound":
-                sign = 1
-            else:
-                sign = -1
-
-            transaction_id = payment.get("transactionId")
-            test_st_line_1 = self.env["account.bank.statement.line"].search(
-                [("unique_import_id", "=", transaction_id), ("company_id", "=", company.id)], limit=1
-            ) if transaction_id else False
-
-            if not test_st_line_1:
-                st_line = self.env["account.bank.statement"].create({
-                    "name": payment.get("concept") or move_payment.name,
-                    "journal_id": journal.id,
-                    "company_id": company.id,
-                    "date": date,
-                    "line_ids": [(0, 0, {
-                        "date": date,
-                        "payment_ref": move_payment.name,
-                        "partner_id": partner.id,
-                        "amount": move_payment.amount * sign,
-                        "unique_import_id": transaction_id,
-                    })],
+        if len(statement_move_line) > 1:
+            suspense = statement_move_line.filtered(lambda l: l.account_id.account_type not in ('asset_receivable', 'liability_payable'))
+            statement_move_line = suspense[0] if suspense else statement_move_line[0]
+        elif len(statement_move_line) == 1:
+            statement_move_line = statement_move_line[0]
+        else:
+            statement_move_line = False
+            
+        if statement_move_line:
+            op_amount = abs(amount)
+            st_balance = statement_move_line.balance
+            
+            if abs(st_balance) > op_amount + 0.001:
+                alloc_debit = op_amount if st_balance > 0 else 0.0
+                alloc_credit = op_amount if st_balance < 0 else 0.0
+                rem_debit = statement_move_line.debit - alloc_debit
+                rem_credit = statement_move_line.credit - alloc_credit
+                alloc_curr = statement_move_line.amount_currency * (alloc_debit - alloc_credit) / st_balance if st_balance else 0.0
+                rem_curr = statement_move_line.amount_currency - alloc_curr
+                
+                statement_move_line.with_context(check_move_validity=False).write({
+                    'debit': rem_debit,
+                    'credit': rem_credit,
+                    'amount_currency': rem_curr,
                 })
-                test_st_line_1 = st_line.line_ids.filtered(
-                    lambda line: line.payment_ref == move_payment.name)
+                new_line_vals = {
+                    'move_id': statement_move_line.move_id.id,
+                    'account_id': destination_account.id,
+                    'partner_id': partner.id,
+                    'name': statement_move_line.name,
+                    'debit': alloc_debit,
+                    'credit': alloc_credit,
+                    'amount_currency': alloc_curr,
+                    'currency_id': statement_move_line.currency_id.id,
+                    'analytic_distribution': analytic_distribution,
+                }
+                statement_move_line = self.env['account.move.line'].with_context(check_move_validity=False).create(new_line_vals)
             else:
-                test_st_line_1.write({
-                    "payment_ref": move_payment.name,
-                    "partner_id": partner.id,
+                statement_move_line.with_context(check_move_validity=False).write({
+                    'account_id': destination_account.id,
+                    'partner_id': partner.id,
+                    'analytic_distribution': analytic_distribution,
                 })
-
-            counterpart_line = move_payment.move_id.line_ids.filtered(
-                lambda line: line.account_id.id != destination_account.id)
-            if len(counterpart_line) > 1:
-                counterpart_line = counterpart_line.filtered(lambda l: l.account_id.account_type in ('asset_cash', 'asset_current')) or counterpart_line[0]
             
-            if test_st_line_1.move_id.state == 'draft':
-                test_st_line_1.move_id.action_post()
-            
-            # Find the suspense line of the statement (the one not matching the bank account)
-            bank_account = journal.default_account_id
-            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
-                lambda line: line.account_id.id != bank_account.id)
-            if len(statement_move_line) > 1:
-                statement_move_line = statement_move_line[0]
-            
-            if statement_move_line and counterpart_line:
-                if statement_move_line.account_id.id != counterpart_line.account_id.id:
-                    counterpart_line.with_context(check_move_validity=False).write({
-                        'account_id': statement_move_line.account_id.id
-                    })
-                (statement_move_line + counterpart_line).reconcile()
-                if hasattr(test_st_line_1, 'checked'):
-                    test_st_line_1.checked = True
-                elif hasattr(test_st_line_1.move_id, 'checked'):
-                    test_st_line_1.move_id.checked = True
-        except Exception as e:
-            message = _("Cannot update EMBAT Payment because: %s") % (e)
-            self.sudo().message_post(body=message)
-            raise e
-            raise e
-
-        # Mark payment as synchronized in Embat
+        if test_st_line_1.move_id.state == 'draft':
+            test_st_line_1.move_id.action_post()
+            if hasattr(test_st_line_1, 'checked'):
+                test_st_line_1.checked = True
+            elif hasattr(test_st_line_1.move_id, 'checked'):
+                test_st_line_1.move_id.checked = True
+                
         self.mark_as_sync(payment["customId"])
 
     def mark_as_sync(self, customid):
         endpoint = "payments/" + self.embat_company_id + "/" + customid
         request_type = "patch"
-        data = {"sync": True}
-        response, content = self._embat_request(endpoint, self, request_type=request_type, data=data)
+        data = {"sync": "true"}
+        try:
+            import inspect
+            if 'fallback_on_404' in inspect.signature(self._embat_request).parameters:
+                response, content = self._embat_request(endpoint, self, request_type=request_type, data=data, fallback_on_404=False)
+            else:
+                response, content = self._embat_request(endpoint, self, request_type=request_type, data=data)
+        except Exception as e:
+            _logger.warning("Failed to mark payment %s as synced on Embat (it may have been deleted). Error: %s", customid, str(e))
 
     def reconciliate_payment_embat(self, payment, move, journal, company, date):
         lines_to_reconcile = self.env['account.move.line']
@@ -459,58 +556,78 @@ class EmbatAccount(models.Model):
 
             company_id = company.id if isinstance(company, models.Model) else company
 
+
             test_st_line_1 = False
+            _logger.info("Searching st_line by unique_import_id ilike %s for company %s", transaction_id, company_id)
             if transaction_id:
                 test_st_line_1 = self.env["account.bank.statement.line"].search(
-                    [("unique_import_id", "=", transaction_id), ("company_id", "=", company_id)], limit=1
+                    [("unique_import_id", "ilike", transaction_id), ("company_id", "=", company_id)], limit=1
                 )
+            
+            if not test_st_line_1:
+                st_line_amount = payment.amount * sign
+                domain_fallback = [
+                    ("amount", "=", st_line_amount),
+                    ("date", "=", date),
+                    ("journal_id", "=", journal.id),
+                    ("company_id", "=", company_id),
+                    ("is_reconciled", "=", False)
+                ]
+                _logger.info("Fallback search domain: %s", domain_fallback)
+                st_lines = self.env["account.bank.statement.line"].search(domain_fallback)
+                _logger.info("Fallback search found %s lines", len(st_lines))
+                if len(st_lines) == 1:
+                    test_st_line_1 = st_lines[0]
+                elif len(st_lines) > 1:
+                    st_lines_concept = st_lines.filtered(lambda l: l.payment_ref == payment.name)
+                    _logger.info("Filtered by concept %s found %s lines", payment.name, len(st_lines_concept))
+                    if len(st_lines_concept) == 1:
+                        test_st_line_1 = st_lines_concept[0]
 
             if not test_st_line_1:
-                st_line = self.env["account.bank.statement"].create({
-                    "name": move.name,
-                    "journal_id": journal.id,
-                    "company_id": company_id,
-                    "date": date,
-                    "line_ids": [(0, 0, {
-                        "date": date,
-                        "payment_ref": payment.name,
-                        "partner_id": payment.partner_id.id,
-                        "amount": payment.amount*sign,
-                        "unique_import_id": transaction_id or payment.embat_transaction_id or False,
-                    })],
-                })
-                test_st_line_1 = st_line.line_ids.filtered(
-                    lambda line: line.payment_ref == payment.name)
+                _logger.warning("Statement line not found for payment %s", payment.name)
+                message = _("Statement line not found for payment %s") % payment.name
+                company.sudo().message_post(body=message)
+                return
             else:
-                test_st_line_1.write({
+                _logger.info("Found st_line %s", test_st_line_1.id)
+
+            if test_st_line_1:
+                if test_st_line_1.move_id.state == 'posted':
+                    test_st_line_1.move_id.button_draft()
+                test_st_line_1.with_context(check_move_validity=False).write({
                     "payment_ref": payment.name,
                     "partner_id": payment.partner_id.id,
                 })
-            counterpart_line = payment.move_id.line_ids.filtered(
-                lambda line: line.account_id.account_type not in ('asset_receivable', 'liability_payable')
-            )
-            if len(counterpart_line) > 1:
-                counterpart_line = counterpart_line.filtered(lambda l: l.account_id.account_type in ('asset_cash', 'asset_current')) or counterpart_line[0]
+                # It will be posted later below if needed, or we post it now
+                if test_st_line_1.move_id.state == 'draft':
+                    test_st_line_1.move_id.action_post()
+                counterpart_line = payment.move_id.line_ids.filtered(
+                    lambda line: line.account_id.account_type not in ('asset_receivable', 'liability_payable')
+                )
+                if len(counterpart_line) > 1:
+                    counterpart_line = counterpart_line.filtered(lambda l: l.account_id.account_type in ('asset_cash', 'asset_current')) or counterpart_line[0]
 
-            test_st_line_1 = st_line.line_ids.filtered(
-                lambda line: line.payment_ref == payment.name)
-            
-            if test_st_line_1.move_id.state == 'draft':
-                test_st_line_1.move_id.action_post()
-            
-            # Find the suspense line of the statement (the one not matching the bank account)
-            bank_account = journal.default_account_id
-            statement_move_line = test_st_line_1.move_id.line_ids.filtered(
-                lambda line: line.account_id.id != bank_account.id)
-            if len(statement_move_line) > 1:
-                statement_move_line = statement_move_line[0]
-            
-            if statement_move_line and counterpart_line:
-                if statement_move_line.account_id.id != counterpart_line.account_id.id:
-                    counterpart_line.with_context(check_move_validity=False).write({
-                        'account_id': statement_move_line.account_id.id
-                    })
-                (statement_move_line + counterpart_line).reconcile()
+                if test_st_line_1.move_id.state == 'draft':
+                    test_st_line_1.move_id.action_post()
+                
+                # Find the suspense line of the statement (the one not matching the bank account)
+                bank_account = journal.default_account_id
+                statement_move_line = test_st_line_1.move_id.line_ids.filtered(
+                    lambda line: line.account_id.id != bank_account.id)
+                if len(statement_move_line) > 1:
+                    statement_move_line = statement_move_line[0]
+                
+                if statement_move_line and counterpart_line:
+                    if statement_move_line.account_id.id != counterpart_line.account_id.id:
+                        if counterpart_line.move_id.state == 'posted':
+                            counterpart_line.move_id.button_draft()
+                        counterpart_line.with_context(check_move_validity=False).write({
+                            'account_id': statement_move_line.account_id.id
+                        })
+                        if counterpart_line.move_id.state == 'draft':
+                            counterpart_line.move_id.action_post()
+                    (statement_move_line + counterpart_line).reconcile()
         except Exception as e:
             message = _("Cannot update EMBAT Payment because: %s" % (e))
             self.sudo().message_post(

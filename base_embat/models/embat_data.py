@@ -92,7 +92,7 @@ class EmbatAccount(models.Model):
         return headers
 
     def _embat_request(
-            self, endpoint, model, request_type="get", params=None, data=None
+            self, endpoint, model, request_type="get", params=None, data=None, fallback_on_404=True
     ):
         content = {}
         headers = self._embat_get_headers()
@@ -147,7 +147,7 @@ class EmbatAccount(models.Model):
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            if request_type == "patch" and response.status_code == 404:
+            if request_type == "patch" and response.status_code == 404 and fallback_on_404:
                 new_endpoint = endpoint.rsplit('/', 1)[0]
                 _logger.warning("Resource not found (404) during PATCH on %s. Retrying as POST on %s", endpoint, new_endpoint)
                 return self._embat_request(new_endpoint, model, request_type="post", params=params, data=data)
