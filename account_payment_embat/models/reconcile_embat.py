@@ -90,7 +90,7 @@ class EmbatAccount(models.Model):
             company.sudo().message_post(body=message)
             return
 
-        analytic_distribution = self._parse_analytic_distribution(payment, company)
+        analytic_account_id = self._parse_analytic_account(payment, company)
 
         date = fields.Date.today()
         if "date" in payment and payment["date"]:
@@ -163,8 +163,7 @@ class EmbatAccount(models.Model):
                     )
                     if counterpart_line:
                         invoice_lines_to_reconcile += counterpart_line[0]
-                if operation.get("customId"):
-                    self.mark_as_sync(operation["customId"], endpoint_type="operations")
+
 
         # 3. RECONCILE ALL
         if invoice_lines_to_reconcile:
@@ -218,13 +217,13 @@ class EmbatAccount(models.Model):
                         'credit': alloc_credit,
                         'amount_currency': alloc_curr,
                         'currency_id': statement_move_line.currency_id.id,
-                        'analytic_distribution': analytic_distribution,
+                        'analytic_account_id': analytic_account_id,
                     }
                     statement_move_line = self.env['account.move.line'].with_context(check_move_validity=False).create(new_line_vals)
                 else:
                     statement_move_line.with_context(check_move_validity=False).write({
                         'account_id': target_account.id,
-                        'analytic_distribution': analytic_distribution
+                        'analytic_account_id': analytic_account_id
                     })
             
             if test_st_line_1.move_id.state == 'draft':
@@ -323,7 +322,7 @@ class EmbatAccount(models.Model):
     def get_payment_contacts(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT CONTACTS: %s", payment)
         
-        analytic_distribution = self._parse_analytic_distribution(payment, company)
+        analytic_account_id = self._parse_analytic_account(payment, company)
         
         partner = False
         partner_id_str = payment.get("contactCustomId")
@@ -455,14 +454,14 @@ class EmbatAccount(models.Model):
                     'credit': alloc_credit,
                     'amount_currency': alloc_curr,
                     'currency_id': statement_move_line.currency_id.id,
-                    'analytic_distribution': analytic_distribution,
+                    'analytic_account_id': analytic_account_id,
                 }
                 statement_move_line = self.env['account.move.line'].with_context(check_move_validity=False).create(new_line_vals)
             else:
                 statement_move_line.with_context(check_move_validity=False).write({
                     'account_id': destination_account.id,
                     'partner_id': partner.id,
-                    'analytic_distribution': analytic_distribution,
+                    'analytic_account_id': analytic_account_id,
                 })
             
         if test_st_line_1.move_id.state == 'draft':
@@ -474,8 +473,8 @@ class EmbatAccount(models.Model):
                 
         self.mark_as_sync(payment["customId"])
 
-    def mark_as_sync(self, customid):
-        endpoint = "payments/" + self.embat_company_id + "/" + customid
+    def mark_as_sync(self, customid, endpoint_type="payments"):
+        endpoint = f"{endpoint_type}/" + self.embat_company_id + "/" + customid
         _logger.info("Endpoint: %s", endpoint)
         request_type = "patch"
         data = {"sync": "true"}
