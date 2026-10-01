@@ -48,7 +48,7 @@ class AccountMoveLine(models.Model):
         }
 
         if self.statement_line_id and self.statement_line_id.unique_import_id:
-            data['transactionsIds'] = [self.statement_line_id.unique_import_id]
+            data['transactionsIds'] = [self.statement_line_id.unique_import_id.split("-")[-1]]
         elif (hasattr(self.move_id, "embat_transaction_id") and
               self.move_id.embat_transaction_id):
             if "," in self.move_id.embat_transaction_id:
