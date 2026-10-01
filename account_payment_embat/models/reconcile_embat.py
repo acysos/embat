@@ -162,8 +162,7 @@ class EmbatAccount(models.Model):
                     )
                     if counterpart_line:
                         invoice_lines_to_reconcile += counterpart_line[0]
-                if operation.get("customId"):
-                    self.mark_as_sync(operation["customId"], endpoint_type="operations")
+
 
         # 3. RECONCILE ALL
         if invoice_lines_to_reconcile:
@@ -514,8 +513,8 @@ class EmbatAccount(models.Model):
                 
         self.mark_as_sync(payment["customId"])
 
-    def mark_as_sync(self, customid):
-        endpoint = "payments/" + self.embat_company_id + "/" + customid
+    def mark_as_sync(self, customid, endpoint_type="payments"):
+        endpoint = f"{endpoint_type}/" + self.embat_company_id + "/" + customid
         _logger.info("Endpoint: %s", endpoint)
         request_type = "patch"
         data = {"sync": "true"}
