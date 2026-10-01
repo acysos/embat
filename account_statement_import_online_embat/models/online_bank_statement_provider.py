@@ -41,28 +41,36 @@ class OnlineBankStatementProviderEmbat(models.Model):
     @api.depends("embat_data_id", "embat_data_id.embat_company_id", "account_number")
     def _embat_get_bank_id(self):
         """Obtains the bank ID from the Embat API according to the name."""
-        self.ensure_one()
-        if self.embat_data_id:
-            endpoint = "banks/" + self.embat_data_id.embat_company_id
-            response, content = self.embat_data_id._embat_request(endpoint, self)
-            if not content or "data" not in content:
-                message = _("Could not retrieve the list of banks from Embat: %s") % (response)
-                self.embat_data_id._create_log("ERROR", "ERROR", message, self)
-                raise UserError(message)
-            message = _("List of banks retrieved from Embat successfully.")
-            self.embat_data_id._create_log("INFO", "INFO", message, self)
-            acc_number = self.account_number.lower() or False
-            if acc_number:
-                for bank in content["data"]:
-                    for bankproduct in bank.get("bankProducts", []):
-                        accountnumber = bankproduct.get("accountNumber")
-                        accountnumber = accountnumber.lower() if accountnumber else ""
-                        if accountnumber == acc_number:
-                            self.embat_account_bank_id = bankproduct["id"]
-                if not self.embat_account_bank_id:
-                    raise UserError(_("The bank was not found in Embat."))
-            else:
-                raise UserError(_("No bank account in journal"))
+        for provider in self:
+            provider.embat_account_bank_id = False
+            if provider.embat_data_id:
+                endpoint = "banks/" + provider.embat_data_id.embat_company_id
+                response, content = provider.embat_data_id._embat_request(endpoint, provider)
+                if not content or "data" not in content:
+                    message = _("Could not retrieve the list of banks from Embat: %s") % (response)
+                    provider.embat_data_id._create_log("ERROR", "ERROR", message, provider)
+                    continue
+                message = _("List of banks retrieved from Embat successfully.")
+                provider.embat_data_id._create_log("INFO", "INFO", message, provider)
+                acc_number = provider.account_number.lower() if provider.account_number else False
+                if acc_number:
+                    found_bank_id = False
+                    for bank in content["data"]:
+                        for bankproduct in bank.get("bankProducts", []):
+                            accountnumber = bankproduct.get("accountNumber")
+                            accountnumber = accountnumber.lower() if accountnumber else ""
+                            if accountnumber == acc_number:
+                                found_bank_id = bankproduct["id"]
+                                break
+                        if found_bank_id:
+                            break
+                    provider.embat_account_bank_id = found_bank_id
+                    if not found_bank_id:
+                        message = _("The bank was not found in Embat.")
+                        provider.embat_data_id._create_log("ERROR", "ERROR", message, provider)
+                else:
+                    message = _("No bank account in journal")
+                    provider.embat_data_id._create_log("ERROR", "ERROR", message, provider)
 
 
     def _obtain_statement_data(self, date_since, date_until):

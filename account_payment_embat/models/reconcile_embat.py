@@ -53,6 +53,30 @@ class EmbatAccount(models.Model):
                     datetime.datetime.now().strftime(EMBAT_DATE_FORMAT))
                 embat_data._create_log("INFO", "PAYMENTS_INFO", message, embat_data)
 
+    def _parse_analytic_distribution(self, payment, company):
+        analytic_distribution = {}
+        if payment.get("attributes"):
+            for attr in payment.get("attributes"):
+                val_id = attr.get("customId")
+                if not val_id:
+                    name = attr.get("name")
+                    if name:
+                        account = self.env["account.analytic.account"].search([
+                            ("name", "=", name),
+                            "|", ("company_id", "=", company.id), ("company_id", "=", False)
+                        ], limit=1)
+                        if not account:
+                            account = self.env["account.analytic.account"].create({
+                                "name": name,
+                                "company_id": company.id,
+                            })
+                        val_id = account.id
+                if val_id:
+                    try:
+                        analytic_distribution[str(int(val_id))] = 100.0
+                    except (ValueError, TypeError):
+                        pass
+        return analytic_distribution
 
     def get_payment_operation(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT OPERATION: %s", payment)
@@ -137,8 +161,6 @@ class EmbatAccount(models.Model):
                     )
                     if counterpart_line:
                         invoice_lines_to_reconcile += counterpart_line[0]
-                if operation.get("customId"):
-                    self.mark_as_sync(operation["customId"], endpoint_type="operations")
 
         # 3. RECONCILE ALL
         if invoice_lines_to_reconcile:
@@ -238,15 +260,7 @@ class EmbatAccount(models.Model):
             if "date" in payment and payment["date"]:
                 date = payment["date"].split("T")[0]
 
-            analytic_distribution = {}
-            if payment.get("attributes"):
-                for attr in payment.get("attributes"):
-                    val_id = attr.get("customId")
-                    if val_id:
-                        try:
-                            analytic_distribution[str(int(val_id))] = 100.0
-                        except (ValueError, TypeError):
-                            pass
+            analytic_distribution = self._parse_analytic_distribution(payment, company)
 
             transaction_id = payment.get("transactionId")
             _logger.info("Searching st_line by unique_import_id ilike %s for company %s", transaction_id, company.id)
