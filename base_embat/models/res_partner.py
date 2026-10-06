@@ -153,7 +153,7 @@ class ResPartner(models.Model):
                     #             'embat_id': legacy_embat_id
                     #         })]
                     # -----------------------------------------------
-                    partner.embat_mapping_ids = [(0, 0, {
+                    partner.sudo().embat_mapping_ids = [(0, 0, {
                         'company_id': comp.id,
                         'embat_id': content["id"],
                     })]
@@ -201,7 +201,7 @@ class ResPartner(models.Model):
                         raise ValidationError(message)
                     
                     if mapping:
-                        mapping.unlink()
+                        mapping.sudo().unlink()
                         
                     # --- LEGACY CLEANUP (Commented out) ---
                     # Clean legacy field directly
