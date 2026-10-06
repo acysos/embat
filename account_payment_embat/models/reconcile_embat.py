@@ -240,7 +240,9 @@ class EmbatAccount(models.Model):
                 _logger.error("Error reconciling statement %s: %s", test_st_line_1.id, e)
                 message = _("Error reconciling operation payment %s: %s") % (payment.get("id"), str(e))
                 company.sudo().message_post(body=message)
-
+        _logger.info("=============================================")
+        _logger.info("CustomId: %s", payment["customId"])
+        self.mark_as_sync(payment["customId"])
 
 
     def get_payment_accounting(self, payment, company):
