@@ -4,6 +4,7 @@ from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 import datetime
 import logging
+import inspect
 _logger = logging.getLogger(__name__)
 
 
@@ -57,9 +58,9 @@ class EmbatAccount(models.Model):
         analytic_distribution = {}
         if payment.get("attributes"):
             for attr in payment.get("attributes"):
-                val_id = attr.get("customId")
+                val_id = attr.get("valueCustomId")
                 if not val_id:
-                    name = attr.get("name")
+                    name = attr.get("value") or attr.get("name")
                     if name:
                         account = self.env["account.analytic.account"].search([
                             ("name", "=", name),
@@ -520,7 +521,6 @@ class EmbatAccount(models.Model):
         data = {"sync": "true"}
         _logger.info("Data: %s", data)
         try:
-            import inspect
             if 'fallback_on_404' in inspect.signature(self._embat_request).parameters:
                 response, content = self._embat_request(endpoint, self, request_type=request_type, data=data, fallback_on_404=False)
             else:
