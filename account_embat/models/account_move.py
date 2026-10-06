@@ -49,7 +49,7 @@ class AccountMove(models.Model):
             accounts = self.env['account.analytic.account'].browse(list(analytic_account_ids))
             for account in accounts:
                 attributes.append({
-                    "customId": str(account.id),
+                    "customId": str(account.plan_id.id),
                     "value": account.name,
                     "valueCustomId": str(account.id),
                 })
