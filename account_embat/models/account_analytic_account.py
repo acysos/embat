@@ -3,6 +3,7 @@
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
 import requests
+import json
 
 
 class AccountAnalyticAccount(models.Model):
@@ -40,7 +41,6 @@ class AccountAnalyticAccount(models.Model):
     )
 
     def _load_embat_analytic_account(self):
-        import json
         for account in self:
             if not account.plan_id:
                 continue
@@ -69,9 +69,9 @@ class AccountAnalyticAccount(models.Model):
                 check_endpoint = "attributes/" + embat_data.embat_company_id + "/" + plan_custom_id
                 try:
                     check_response, dummy_content = embat_data._embat_request(check_endpoint, account, request_type="get")
-                except requests.exceptions.HTTPError as e:
-                    if e.response.status_code == 404:
-                        check_response = e.response
+                except UserError as e:
+                    if "404" in str(e):
+                        check_response = type('obj', (object,), {'status_code': 404})
                         dummy_content = None
                     else:
                         raise e
