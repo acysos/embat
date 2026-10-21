@@ -151,3 +151,36 @@ class TestAccountEmbat(TransactionCase):
             self.config_settings.load_analytic_accounts()
         with self.assertRaises(UserError):
             self.config_settings.load_pending_invoices()
+
+    def test_create_bank_journal_not_in_embat(self):
+        # Bank journal creation should succeed even if the bank account is not in Embat
+        bank_account = self.env['res.partner.bank'].create({
+            'acc_number': 'ES9820385778983000760234',
+            'partner_id': self.company.partner_id.id,
+        })
+        journal = self.env['account.journal'].create({
+            'name': 'Test Bank Not In Embat',
+            'type': 'bank',
+            'code': 'TBNIE',
+            'bank_account_id': bank_account.id,
+            'company_id': self.company.id,
+        })
+        self.assertTrue(journal)
+        self.assertFalse(journal.embat_id)
+
+    def test_update_product_embat_manual_raises_if_not_found(self):
+        # Manual execution of update_product_embat should raise UserError if not found
+        bank_account = self.env['res.partner.bank'].create({
+            'acc_number': 'ES9820385778983000760234',
+            'partner_id': self.company.partner_id.id,
+        })
+        journal = self.env['account.journal'].create({
+            'name': 'Test Bank Manual Update',
+            'type': 'bank',
+            'code': 'TBMU',
+            'bank_account_id': bank_account.id,
+            'company_id': self.company.id,
+        })
+        with self.assertRaises(UserError):
+            journal.update_product_embat()
+
