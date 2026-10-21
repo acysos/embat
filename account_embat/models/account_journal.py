@@ -1,7 +1,10 @@
 # Copyright 2025 Acysos S.L. (https://www.acysos.com)
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
+import logging
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+
+_logger = logging.getLogger(__name__)
 
 
 class AccountJournal(models.Model):
@@ -13,43 +16,71 @@ class AccountJournal(models.Model):
         readonly=True,
     )
 
-    def update_product_embat(self):
+    def update_product_embat(self, raise_exception=True):
         """Update the Embat product for the journal."""
         self.ensure_one()
         embat_data = self.env.company.embat_data_id
         if not embat_data:
-            raise UserError(_("Please configure the Embat data first."))
+            if raise_exception:
+                raise UserError(_("Please configure the Embat data first."))
+            return False
 
-        response, content = embat_data._embat_request(
-            "products/" + embat_data.embat_company_id,
-            self,
-            request_type="get",
-        )
+        try:
+            response, content = embat_data._embat_request(
+                "products/" + embat_data.embat_company_id,
+                self,
+                request_type="get",
+            )
+        except Exception as e:
+            if raise_exception:
+                raise e
+            return False
+
         if not content or "data" not in content:
-            raise UserError(_("Could not retrieve the list of products from Embat."))
+            if raise_exception:
+                raise UserError(_("Could not retrieve the list of products from Embat."))
+            return False
+
         if not self.bank_account_id:
-            raise UserError(_("Please configure the bank account for this journal."))
+            if raise_exception:
+                raise UserError(_("Please configure the bank account for this journal."))
+            return False
+
         acc_number = self.bank_account_id.sanitized_acc_number or False
         if acc_number:
-            for product in content["data"]:
-                if acc_number == product['iban']:
-                    self.embat_id = product['id']
-                    # Update the journal name with the product name
-                    endpoint = "products/" + embat_data.embat_company_id + "/" + self.embat_id
-                    data = {
-                        "additionalInfo": {},
-                        "accountingCode": self.default_account_id.code,
-                    }
-                    resquest_type = "patch"
-                    response, content = embat_data._embat_request(endpoint, self, request_type=resquest_type, data=data)
-                    if not content or "id" not in content:
-                        raise ValidationError(_("Could not retrieve the product ID from Embat."))
-                    if not self.embat_id:
-                        self.embat_id = content["id"]
-                    return
-            raise UserError(_("The bank account number does not match any product in Embat."))
+            products = content.get("data")
+            if isinstance(products, list):
+                for product in products:
+                    if isinstance(product, dict) and acc_number == product.get('iban'):
+                        self.embat_id = product.get('id')
+                        # Update the journal name with the product name
+                        endpoint = "products/" + embat_data.embat_company_id + "/" + str(self.embat_id)
+                        data = {
+                            "additionalInfo": {},
+                            "accountingCode": self.default_account_id.code if self.default_account_id else "",
+                        }
+                        resquest_type = "patch"
+                        response, content = embat_data._embat_request(endpoint, self, request_type=resquest_type, data=data)
+                        if not content or "id" not in content:
+                            if raise_exception:
+                                raise ValidationError(_("Could not retrieve the product ID from Embat."))
+                            return False
+                        if not self.embat_id:
+                            self.embat_id = content["id"]
+                        return True
+            if raise_exception:
+                raise UserError(_("The bank account number does not match any product in Embat."))
+            else:
+                _logger.info(
+                    "The bank account number %s for journal %s does not match any product in Embat.",
+                    acc_number,
+                    self.name,
+                )
+            return False
         else:
-            raise UserError(_("The bank account number is not set or is invalid."))
+            if raise_exception:
+                raise UserError(_("The bank account number is not set or is invalid."))
+            return False
 
 
     @api.model_create_multi
@@ -59,7 +90,7 @@ class AccountJournal(models.Model):
         if self.env.company.use_embat:
             for journal in res:
                 if journal.type in ['bank']:
-                    journal.update_product_embat()
+                    journal.update_product_embat(raise_exception=False)
         return res
 
     def write(self, vals):
@@ -68,7 +99,7 @@ class AccountJournal(models.Model):
         if 'embat_id' not in vals and self.env.company.use_embat:
             for journal in self:
                 if journal.type in ['bank']:
-                    journal.update_product_embat()
+                    journal.update_product_embat(raise_exception=False)
         return res
 
     def update_account_move_lines_asset(self):
