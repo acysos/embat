@@ -162,3 +162,28 @@ class TestAccountEmbat(TransactionCase):
         with self.assertRaises(UserError):
             journal.update_product_embat()
 
+    def test_update_product_embat_purchase_journal_without_default_account(self):
+        # Purchase journal without default_account_id should set embat_id without PATCH error
+        self.mock_get.return_value.json.return_value = {
+            'data': [{'id': 'prod_9c8f', 'iban': 'ES9820385778983000760234'}]
+        }
+        self.mock_get.return_value.text = '{"data": [{"id": "prod_9c8f", "iban": "ES9820385778983000760234"}]}'
+        bank_account = self.env['res.partner.bank'].create({
+            'acc_number': 'ES9820385778983000760234',
+            'partner_id': self.company.partner_id.id,
+        })
+        journal = self.env['account.journal'].create({
+            'name': 'Test Purchase Embat',
+            'type': 'purchase',
+            'code': 'TPEM',
+            'bank_account_id': bank_account.id,
+            'default_account_id': False,
+            'company_id': self.company.id,
+        })
+        self.mock_patch.reset_mock()
+        res = journal.update_product_embat()
+        self.assertTrue(res)
+        self.assertEqual(journal.embat_id, 'prod_9c8f')
+        self.assertFalse(self.mock_patch.called)
+
+
