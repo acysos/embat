@@ -53,20 +53,23 @@ class AccountJournal(models.Model):
                 for product in products:
                     if isinstance(product, dict) and acc_number == product.get('iban'):
                         self.embat_id = product.get('id')
-                        # Update the journal name with the product name
-                        endpoint = "products/" + embat_data.embat_company_id + "/" + str(self.embat_id)
-                        data = {
-                            "additionalInfo": {},
-                            "accountingCode": self.default_account_id.code if self.default_account_id else "",
-                        }
-                        resquest_type = "patch"
-                        response, content = embat_data._embat_request(endpoint, self, request_type=resquest_type, data=data)
-                        if not content or "id" not in content:
-                            if raise_exception:
-                                raise ValidationError(_("Could not retrieve the product ID from Embat."))
-                            return False
-                        if not self.embat_id:
-                            self.embat_id = content["id"]
+                        if self.type == 'bank' and self.default_account_id and self.default_account_id.code:
+                            if not self.default_account_id.embat_id:
+                                self.default_account_id._load_embat_account()
+                            # Update the journal name with the product name
+                            endpoint = "products/" + embat_data.embat_company_id + "/" + str(self.embat_id)
+                            data = {
+                                "additionalInfo": {},
+                                "accountingCode": self.default_account_id.code,
+                            }
+                            resquest_type = "patch"
+                            response, content = embat_data._embat_request(endpoint, self, request_type=resquest_type, data=data)
+                            if not content or "id" not in content:
+                                if raise_exception:
+                                    raise ValidationError(_("Could not retrieve the product ID from Embat."))
+                                return False
+                            if not self.embat_id:
+                                self.embat_id = content["id"]
                         return True
             if raise_exception:
                 raise UserError(_("The bank account number does not match any product in Embat."))
