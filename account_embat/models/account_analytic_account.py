@@ -69,6 +69,12 @@ class AccountAnalyticAccount(models.Model):
                 check_endpoint = "attributes/" + embat_data.embat_company_id + "/" + plan_custom_id
                 try:
                     check_response, dummy_content = embat_data._embat_request(check_endpoint, account, request_type="get")
+                except requests.exceptions.HTTPError as e:
+                    if getattr(getattr(e, 'response', None), 'status_code', None) == 404:
+                        check_response = e.response
+                        dummy_content = None
+                    else:
+                        raise e
                 except UserError as e:
                     if "404" in str(e):
                         check_response = type('obj', (object,), {'status_code': 404})
@@ -100,7 +106,7 @@ class AccountAnalyticAccount(models.Model):
                     response = check_response
                     content = dummy_content
 
-                if response.status_code not in [200, 201, 204] or not content:
+                if response.status_code not in [200, 201, 204] or (response.status_code != 204 and not content):
                     message = _("Could not sync the analytic account with Embat: %s") % (response.text)
                     embat_data._create_log("ERROR", "ATTRIBUTES_ERROR", message, account)
                     raise ValidationError(message)
@@ -200,7 +206,14 @@ class AccountAnalyticAccount(models.Model):
                         {"customId": str(account.id)}
                     ]
                 }
-                response, content = embat_data._embat_request(endpoint, account, request_type="delete", data=data)
+                try:
+                    response, content = embat_data._embat_request(endpoint, account, request_type="delete", data=data)
+                except requests.exceptions.HTTPError as e:
+                    if getattr(getattr(e, 'response', None), 'status_code', None) == 404:
+                        response = e.response
+                        content = None
+                    else:
+                        raise e
                 if response.status_code not in [200, 204, 404]:
                     message = _("Could not delete the analytic account in Embat: %s") % (response.text)
                     embat_data._create_log("ERROR", "ATTRIBUTES_ERROR", message, account)
