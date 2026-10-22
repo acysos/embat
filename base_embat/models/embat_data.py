@@ -73,7 +73,7 @@ class EmbatAccount(models.Model):
                 response = requests.post(url, json=data, headers=headers, timeout=self._get_requests_timeout())
                 response.raise_for_status()
                 token_data = response.json()
-                self.write({
+                self.sudo().write({
                     "embat_token": token_data.get("idToken"),
                     "embat_token_expiration": fields.Datetime.now() + datetime.timedelta(seconds=self._get_expiration_delta()),
                 })
@@ -209,8 +209,8 @@ class EmbatAccount(models.Model):
     def _create_log(self, level, code, message, model):
         log_vals = {
             "erp": "odoo",
-            "erpVersion": self.env["ir.module.module"].search([("name", "=", "base")]).installed_version,
-            "connectorVersion": self.env["ir.module.module"].search([("name", "=", "base_embat")]).installed_version,
+            "erpVersion": self.env["ir.module.module"].sudo().search([("name", "=", "base")]).installed_version,
+            "connectorVersion": self.env["ir.module.module"].sudo().search([("name", "=", "base_embat")]).installed_version,
             "level": level,
             "code": code,
             "message": message,
