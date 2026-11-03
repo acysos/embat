@@ -15,7 +15,7 @@ class EmbatAccount(models.Model):
     _inherit = "embat.data"
 
     default_payment_account = fields.Many2one(
-        comodel_name="account.account", string="Default Payment Account", required=True)
+        comodel_name="account.account", string="Default Payment Account")
 
     def reconcile_payments_embat(self):
 
@@ -27,32 +27,33 @@ class EmbatAccount(models.Model):
                 _logger.info("No Embat data configured for the company %s.", company.name)
                 continue
             for embat_data in embat_data_ids:
+                embat_data_company = embat_data.with_company(company)
                 endpoint = "payments/" + embat_data.embat_company_id
 
                 params = {"sync": False}
                 request_type = "get"
-                response, content = embat_data._embat_request(
-                    endpoint, embat_data, request_type=request_type, params=params)
+                response, content = embat_data_company._embat_request(
+                    endpoint, embat_data_company, request_type=request_type, params=params)
 
                 if not content or "data" not in content:
                     message = _("Could not retrieve the payments from Embat: %s") % (response)
-                    embat_data._create_log("ERROR", "PAYMENTS_ERROR", message, embat_data)
+                    embat_data_company._create_log("ERROR", "PAYMENTS_ERROR", message, embat_data_company)
                     continue
                 for payment in content["data"]:
 
                     if payment["type"] == "operations" and payment["operations"]:
-                        embat_data.get_payment_operation(payment, company)
+                        embat_data_company.get_payment_operation(payment, company)
                     if (payment["type"] == "accountings" or
                             payment["type"] == "banks" and payment["accountingCode"] and (
                                     payment["accountingCode"].startswith("572") or
                                     payment["accountingCode"].startswith("520"))):
-                        embat_data.get_payment_accounting(payment, company)
+                        embat_data_company.get_payment_accounting(payment, company)
                     if payment['type'] == "contacts":
-                        embat_data.get_payment_contacts(payment, company)
+                        embat_data_company.get_payment_contacts(payment, company)
 
                 message = _("Payuments synced with Embat successfully date: %s") % (
                     datetime.datetime.now().strftime(EMBAT_DATE_FORMAT))
-                embat_data._create_log("INFO", "PAYMENTS_INFO", message, embat_data)
+                embat_data_company._create_log("INFO", "PAYMENTS_INFO", message, embat_data_company)
 
     def _parse_analytic_distribution(self, payment, company):
         analytic_distribution = {}
@@ -83,7 +84,11 @@ class EmbatAccount(models.Model):
     def get_payment_operation(self, payment, company):
         _logger.info("DEBUG EMBAT PAYMENT OPERATION: %s", payment)
         move_env = self.env["account.move"]
-        journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
+        journal = self.env["account.journal"].search([
+            ("embat_id", "=", payment["productId"]),
+            ("type", "=", "bank"),
+            ("company_id", "=", company.id),
+        ], limit=1)
 
         if not journal:
             message = _("Journal not found for Embat ProudctId: %s" % payment["productId"])
@@ -251,7 +256,11 @@ class EmbatAccount(models.Model):
         account_debit_id = self.env["account.account"].search([("code", "=", payment["accountingCode"]), ("company_ids", "in", company.id)], limit=1)
         if not account_debit_id:
             account_debit_id = self.default_payment_account
-        journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
+        journal = self.env["account.journal"].search([
+            ("embat_id", "=", payment["productId"]),
+            ("type", "=", "bank"),
+            ("company_id", "=", company.id),
+        ], limit=1)
         if not journal:
             message = _("Journal not found for Embat ProudctId: %s" % payment["productId"])
             company.sudo().message_post(
@@ -397,7 +406,11 @@ class EmbatAccount(models.Model):
             company.sudo().message_post(body=message)
             return
 
-        journal = self.env["account.journal"].search([("embat_id", "=", payment["productId"]), ("type", "=", "bank")])
+        journal = self.env["account.journal"].search([
+            ("embat_id", "=", payment["productId"]),
+            ("type", "=", "bank"),
+            ("company_id", "=", company.id),
+        ], limit=1)
         if not journal:
             message = _("Journal not found for Embat ProductId: %s") % payment["productId"]
             company.sudo().message_post(body=message)

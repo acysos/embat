@@ -1,4 +1,6 @@
 from odoo.tests.common import TransactionCase
+from unittest.mock import patch, MagicMock
+import requests
 
 class TestBaseEmbat(TransactionCase):
     def setUp(self):
@@ -78,3 +80,40 @@ class TestBaseEmbat(TransactionCase):
         
         fmt = self.embat_data._get_date_format()
         self.assertEqual(fmt, "%Y-%m-%dT%H:%M:%S")
+
+    def test_single_api_log_and_404_document_exists_handling(self):
+        """Ensure _embat_request creates a single log per request and handles 404 locked state."""
+        self.embat_data.write({
+            "embat_token": "valid_token",
+            "embat_token_expiration": "2099-01-01 00:00:00",
+            "embat_company_id": "comp_1",
+        })
+        mock_resp = MagicMock()
+        mock_resp.status_code = 404
+        mock_resp.text = '{"detail": "The document exists but its current state does not allow updating it."}'
+        mock_resp.json.return_value = {
+            "detail": "The document exists but its current state does not allow updating it."
+        }
+        http_err = requests.exceptions.HTTPError(response=mock_resp)
+        mock_resp.raise_for_status.side_effect = http_err
+
+        with patch("odoo.addons.base_embat.models.embat_data.requests.patch", return_value=mock_resp) as mock_patch, \
+             patch("odoo.addons.base_embat.models.embat_data.requests.post") as mock_post:
+            before_count = self.env["embat.api.log"].search_count([
+                ("model", "=", "embat.data"),
+                ("res_id", "=", self.embat_data.id),
+            ])
+            resp, content = self.embat_data._embat_request(
+                "operations/comp_1/account.move-1",
+                self.embat_data,
+                request_type="patch",
+                data={"status": "paid"},
+            )
+            after_count = self.env["embat.api.log"].search_count([
+                ("model", "=", "embat.data"),
+                ("res_id", "=", self.embat_data.id),
+            ])
+            self.assertEqual(after_count - before_count, 1)
+            self.assertTrue(mock_patch.called)
+            self.assertFalse(mock_post.called)
+            self.assertIn("id", content)

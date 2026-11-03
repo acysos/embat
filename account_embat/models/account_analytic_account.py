@@ -142,7 +142,7 @@ class AccountAnalyticAccount(models.Model):
                 # -----------------------------------------------
 
                 if not synced_for_company:
-                    account.embat_mapping_ids = [(0, 0, {
+                    account.with_context(skip_embat_sync=True).embat_mapping_ids = [(0, 0, {
                         'company_id': comp.id,
                         'embat_id': plan_custom_id,
                     })]
@@ -153,13 +153,16 @@ class AccountAnalyticAccount(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         res = super(AccountAnalyticAccount, self).create(vals_list)
-        for account in res:
-            account._load_embat_analytic_account()
+        if not self.env.context.get("skip_embat_sync"):
+            for account in res:
+                account._load_embat_analytic_account()
         return res
 
     def write(self, vals):
         res = super(AccountAnalyticAccount, self).write(vals)
-        if 'embat_id' not in vals:
+        if not self.env.context.get("skip_embat_sync") and not (
+            set(vals.keys()) <= {"embat_id", "embat_mapping_ids"}
+        ):
             self._load_embat_analytic_account()
         return res
 

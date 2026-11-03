@@ -208,4 +208,77 @@ class TestAccountEmbat(TransactionCase):
         self.assertEqual(journal.embat_id, 'prod_9c8f')
         self.assertFalse(self.mock_patch.called)
 
+    def test_invoice_due_date_status_overdue_vs_pending(self):
+        """Past due dates must be marked 'overdue' and future due dates 'pending'."""
+        sales_journal = self.test_invoice.journal_id
+        sales_journal.with_context(skip_embat_sync=True).embat_id = "prod_sale_1"
+        income_account = self.test_invoice.invoice_line_ids[0].account_id
+
+        past_invoice = self.env['account.move'].create({
+            'move_type': 'out_invoice',
+            'partner_id': self.test_partner.id,
+            'invoice_date': '2020-01-01',
+            'invoice_date_due': '2020-01-15',
+            'company_id': self.company.id,
+            'journal_id': sales_journal.id,
+            'invoice_line_ids': [(0, 0, {
+                'name': 'Past Due Item',
+                'quantity': 1,
+                'price_unit': 50.0,
+                'account_id': income_account.id,
+            })],
+        })
+        self.mock_post.reset_mock()
+        past_invoice.action_post()
+        op_calls = [c for c in self.mock_post.call_args_list if "operations/" in c[0][0]]
+        self.assertTrue(op_calls)
+        self.assertEqual(op_calls[0][1]['json']['status'], 'overdue')
+
+        future_invoice = self.env['account.move'].create({
+            'move_type': 'out_invoice',
+            'partner_id': self.test_partner.id,
+            'invoice_date': '2099-01-01',
+            'invoice_date_due': '2099-12-31',
+            'company_id': self.company.id,
+            'journal_id': sales_journal.id,
+            'invoice_line_ids': [(0, 0, {
+                'name': 'Future Due Item',
+                'quantity': 1,
+                'price_unit': 50.0,
+                'account_id': income_account.id,
+            })],
+        })
+        self.mock_post.reset_mock()
+        future_invoice.action_post()
+        op_calls_future = [c for c in self.mock_post.call_args_list if "operations/" in c[0][0]]
+        self.assertTrue(op_calls_future)
+        self.assertEqual(op_calls_future[0][1]['json']['status'], 'pending')
+
+    def test_child_partner_vat_preserved_and_no_recursive_write(self):
+        """Ensure child company partner keeps its own VAT and does not fire recursive PATCH on create."""
+        parent = self.env["res.partner"].create({
+            "name": "Parent Co",
+            "is_company": True,
+            "vat": "ESA08663619",
+        })
+        self.mock_post.reset_mock()
+        self.mock_patch.reset_mock()
+        self.mock_post.return_value.json.return_value = {"idToken": "fake_token", "id": "fake_child_id"}
+        self.mock_post.return_value.text = '{"idToken": "fake_token", "id": "fake_child_id"}'
+        child = self.env["res.partner"].create({
+            "name": "Child Co",
+            "is_company": True,
+            "parent_id": parent.id,
+            "vat": "ESB85905495",
+        })
+        self.assertFalse(self.mock_patch.called, "Creating a partner should not trigger a recursive PATCH")
+        contact_calls = [
+            c for c in self.mock_post.call_args_list
+            if "contacts/" in c[0][0]
+        ]
+        self.assertEqual(len(contact_calls), 1)
+        sent_json = contact_calls[0][1]["json"]
+        self.assertEqual(sent_json["taxId"], "ESB85905495")
+        self.assertEqual(child.embat_id, "fake_child_id")
+
 
