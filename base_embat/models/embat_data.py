@@ -14,7 +14,6 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
-
 class EmbatAccount(models.Model):
     _name = "embat.data"
     _inherit = ['mail.thread', 'mail.activity.mixin']
@@ -132,6 +131,11 @@ class EmbatAccount(models.Model):
             )
         else:
             raise UserError(_("Invalid request type: %s") % request_type)
+        if response.status_code != 204:
+            try:
+                content = response.json()
+            except ValueError:
+                content = {}
         log_vals = {
             'name': url,
             'model': model._name,
@@ -140,7 +144,7 @@ class EmbatAccount(models.Model):
             'params': json.dumps(params, indent=4) if params else False,
             'headers': json.dumps(headers, indent=4),
             'data': json.dumps(data, indent=4) if data else False,
-            'response': response.text,
+            'response': json.dumps(content, indent=4) if content else response.text,
         }
         _logger.info(json.dumps(log_vals, indent=4))
         self.env['embat.api.log'].sudo().create(log_vals)
@@ -148,38 +152,37 @@ class EmbatAccount(models.Model):
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
-            if request_type == "patch" and response.status_code == 404 and fallback_on_404:
-                new_endpoint = endpoint.rsplit('/', 1)[0]
-                _logger.warning("Resource not found (404) during PATCH on %s. Retrying as POST on %s", endpoint, new_endpoint)
-                return self._embat_request(new_endpoint, model, request_type="post", params=params, data=data)
-            error_msg = _("Embat API Error (%(status_code)s): %(reason)s\nURL: %(url)s\nResponse: %(response)s") % {
+            if request_type == "patch" and response.status_code == 404:
+                detail = content.get("detail", "") if isinstance(content, dict) else ""
+                if "The document exists" in detail:
+                    _logger.warning(
+                        "Embat returned 404 on PATCH %s because the document cannot be updated in its current state (%s). Skipping POST fallback.",
+                        endpoint,
+                        detail,
+                    )
+                    content = dict(content, id=getattr(model, "embat_id", None) or "existing")
+                    return response, content
+                if fallback_on_404:
+                    new_endpoint = endpoint.rsplit('/', 1)[0]
+                    _logger.warning("Resource not found (404) during PATCH on %s. Retrying as POST on %s", endpoint, new_endpoint)
+                    return self._embat_request(new_endpoint, model, request_type="post", params=params, data=data)
+            error_msg = _("Embat API Error (%(status_code)s): %(reason)s\nURL: %(url)s\nData: %(data)s\nResponse: %(response)s") % {
                 'status_code': response.status_code,
                 'reason': response.reason,
                 'url': response.url,
+                'data': json.dumps(data, indent=2) if data else 'None',
                 'response': response.text,
             }
             _logger.error(error_msg)
             raise UserError(error_msg) from e
         if response.status_code == 204:
             return response, content
-        try:
-            content = response.json()
-        except ValueError:
+        if not content and response.text:
             model.sudo().message_post(
                 body=_(
                     "Invalid JSON response from Embat API: %s" % response.text
                 )
             )
-        self.env['embat.api.log'].sudo().create({
-            'name': url,
-            'model': model._name,
-            'res_id': model.id if isinstance(model.id, int) and type(model.id).__name__ != 'NewId' else 0,
-            'request_type': request_type,
-            'params': json.dumps(params, indent=4) if params else False,
-            'headers': json.dumps(headers, indent=4),
-            'data': json.dumps(data, indent=4) if data else False,
-            'response': json.dumps(content, indent=4) if content else False,
-        })
         return response, content
 
     def action_fetch_and_select_embat_companies(self):

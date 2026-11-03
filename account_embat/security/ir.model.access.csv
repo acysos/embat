@@ -1,2 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_embat_analytic_account_mapping,embat.analytic.account.mapping,model_embat_analytic_account_mapping,account.group_account_manager,1,1,1,1
+access_embat_analytic_account_mapping_user,embat.analytic.account.mapping user,model_embat_analytic_account_mapping,base.group_user,1,1,1,1

@@ -52,9 +52,11 @@ class ResPartner(models.Model):
                 ("model", "=", record._name),
                 ("res_id", "=", record.id),
             ]
-            record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
+            record.embat_api_log_ids = self.env["embat.api.log"].sudo().search(domain)
 
     def _load_embat_partner(self):
+        if "use_embat" not in self.env["res.company"]._fields:
+            return
         for partner in self.filtered(lambda p: p.is_company):
             target_companies = partner.company_id if partner.company_id else self.env["res.company"].search([("use_embat", "=", True)])
             for comp in target_companies.filtered("use_embat"):
@@ -82,8 +84,7 @@ class ResPartner(models.Model):
                 data = {
                     "tradeName": partner.name,
                     "legalName": partner.name,
-                    "taxId": partner.vat if partner.vat and (
-                            not partner.parent_id or not partner.parent_id.vat) else partner.parent_id.vat,
+                    "taxId": partner.vat or partner.parent_id.vat or "",
                     "contact": {
                         "phone": str(partner.phone) if partner.phone else "",
                         "email": partner.email if partner.email else "",
@@ -153,7 +154,7 @@ class ResPartner(models.Model):
                     #             'embat_id': legacy_embat_id
                     #         })]
                     # -----------------------------------------------
-                    partner.sudo().embat_mapping_ids = [(0, 0, {
+                    partner.with_context(skip_embat_sync=True).embat_mapping_ids = [(0, 0, {
                         'company_id': comp.id,
                         'embat_id': content["id"],
                     })]
@@ -164,6 +165,8 @@ class ResPartner(models.Model):
 
     def _delete_embat_partner(self):
         """Delete the Embat partner if it exists."""
+        if "use_embat" not in self.env["res.company"]._fields:
+            return
         for partner in self.filtered(lambda p: p.is_company):
             target_companies = partner.company_id if partner.company_id else self.env["res.company"].search([("use_embat", "=", True)])
             for comp in target_companies.filtered("use_embat"):
@@ -201,7 +204,7 @@ class ResPartner(models.Model):
                         raise ValidationError(message)
                     
                     if mapping:
-                        mapping.sudo().unlink()
+                        mapping.unlink()
                         
                     # --- LEGACY CLEANUP (Commented out) ---
                     # Clean legacy field directly
@@ -213,13 +216,16 @@ class ResPartner(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        res = super().create(vals_list)
-        res._load_embat_partner()
+        res = super(ResPartner, self.with_context(skip_embat_sync=True)).create(vals_list)
+        if not self.env.context.get("skip_embat_sync"):
+            res._load_embat_partner()
         return res
 
     def write(self, vals):
-        res = super().write(vals)
-        if 'embat_id' not in vals:
+        res = super(ResPartner, self.with_context(skip_embat_sync=True)).write(vals)
+        if not self.env.context.get("skip_embat_sync") and not (
+            set(vals.keys()) <= {"embat_id", "embat_mapping_ids"}
+        ):
             self._load_embat_partner()
         return res
 

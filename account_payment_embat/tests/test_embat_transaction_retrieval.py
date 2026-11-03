@@ -23,6 +23,12 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             "company_id": self.company.id,
         })
 
+        self.company.write({
+            'transfer_account_id': self.account.id,
+            'account_journal_payment_debit_account_id': self.account.id,
+            'account_journal_payment_credit_account_id': self.account.id,
+        })
+
         # Create a dummy Embat Data record
         self.embat_data = self.env["embat.data"].create({
             "name": "Test Embat",
@@ -37,11 +43,19 @@ class TestEmbatTransactionRetrieval(TransactionCase):
 
     def test_payment_transaction_id_retrieval(self):
         """Test that payment retrieval fetches transactionId."""
+        journal = self.env['account.journal'].search([('type', '=', 'bank'), ('company_id', '=', self.company.id)], limit=1)
+        if not journal:
+            journal = self.env['account.journal'].create({
+                'name': 'Bank Journal', 
+                'type': 'bank', 
+                'code': 'BNK00',
+            })
         payment = self.env['account.payment'].create({
             'amount': 100.0,
             'payment_type': 'outbound',
             'partner_type': 'supplier',
             'date': '2024-01-01',
+            'journal_id': journal.id,
             'currency_id': self.company.currency_id.id,
         })
 
@@ -97,12 +111,18 @@ class TestEmbatTransactionRetrieval(TransactionCase):
         journal.embat_id = "journal_123"
         
         # Create a move line that qualifies (asset_cash)
-        account = self.env['account.account'].create({
-            'name': 'Bank Account',
-            'code': '572000',
-            'account_type': 'asset_cash',
-            'reconcile': True,
-        })
+        account = self.env['account.account'].search([
+            ('code', '=', '572000'),
+            ('company_id', '=', self.company.id),
+        ], limit=1)
+        if not account:
+            account = self.env['account.account'].create({
+                'name': 'Bank Account',
+                'code': '572000',
+                'account_type': 'asset_cash',
+                'reconcile': True,
+                'company_id': self.company.id,
+            })
         
         move = self.env['account.move'].create({
             'move_type': 'entry',
@@ -119,7 +139,7 @@ class TestEmbatTransactionRetrieval(TransactionCase):
                     'name': 'Counterpart',
                     'debit': 0.0,
                     'credit': 100.0,
-                    'account_id': self.company.account_journal_suspense_account_id.id,
+                    'account_id': self.account.id,
                 }),
             ]
         })
@@ -166,13 +186,32 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             self.assertIn(f"accountingentries/comp_123/{line.id}", args[0])
 
     def test_get_payment_contacts(self):
-        """Test retrieving payments of type contacts creates the payment in Odoo."""
+        """Test retrieving payments of type contacts updates the statement line in Odoo."""
+        receivable_account = self.env['account.account'].search([('account_type', '=', 'asset_receivable'), ('company_id', '=', self.company.id)], limit=1)
+        if not receivable_account:
+            receivable_account = self.env['account.account'].create({
+                'name': 'Receivable', 'code': '430000', 'account_type': 'asset_receivable', 'company_id': self.company.id, 'reconcile': True
+            })
+        payable_account = self.env['account.account'].search([('account_type', '=', 'liability_payable'), ('company_id', '=', self.company.id)], limit=1)
+        if not payable_account:
+            payable_account = self.env['account.account'].create({
+                'name': 'Payable', 'code': '410000', 'account_type': 'liability_payable', 'company_id': self.company.id, 'reconcile': True
+            })
+
         # Create a partner/contact
         partner = self.env["res.partner"].create({
             "name": "Contact Test",
             "is_company": True,
             "embat_id": "contact_embat_123",
+            "property_account_receivable_id": receivable_account.id,
+            "property_account_payable_id": payable_account.id,
         })
+
+        suspense_account = self.env['account.account'].search([('account_type', '=', 'asset_current'), ('name', '=', 'Suspense'), ('company_id', '=', self.company.id)], limit=1)
+        if not suspense_account:
+            suspense_account = self.env['account.account'].create({
+                'name': 'Suspense', 'code': '572999', 'account_type': 'asset_current', 'company_id': self.company.id, 'reconcile': True
+            })
 
         # Create a bank journal with embat_id
         journal = self.env['account.journal'].create({
@@ -180,6 +219,17 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             'type': 'bank', 
             'code': 'BNKC',
             'embat_id': 'product_embat_123',
+            'suspense_account_id': suspense_account.id,
+            'default_account_id': self.account.id,
+        })
+
+        st_line = self.env["account.bank.statement.line"].create({
+            "date": "2024-02-01",
+            "payment_ref": "Initial Ref",
+            "amount": -150.0,
+            "journal_id": journal.id,
+            "company_id": self.company.id,
+            "unique_import_id": "ES00-1-txn_contact_999",
         })
 
         payment_payload = {
@@ -228,19 +278,51 @@ class TestEmbatTransactionRetrieval(TransactionCase):
             # Call get_payment_contacts
             self.embat_data.get_payment_contacts(payment_payload, self.company)
 
-            # Search for the created payment
-            odoo_payment = self.env["account.payment"].search([
-                ("embat_id", "=", "txn_contact_999")
-            ])
-            self.assertTrue(odoo_payment, "Payment should be created in Odoo")
-            self.assertEqual(odoo_payment.amount, 150.0)
-            self.assertEqual(odoo_payment.partner_id, partner)
-            self.assertEqual(odoo_payment.payment_type, "outbound")
-            self.assertEqual(odoo_payment.state, "posted")
-            self.assertTrue(odoo_payment.is_matched)
-            
-            # Verify the bank statement line was created and validated/reconciled
-            st_line = self.env["account.bank.statement.line"].search([
-                ("payment_ref", "=", odoo_payment.name)
-            ])
-            self.assertTrue(st_line, "Bank statement line should be created")
+            st_line.invalidate_recordset()
+            self.assertEqual(st_line.partner_id, partner)
+            self.assertEqual(st_line.payment_ref, "Embat Contact Payment")
+            payable_lines = st_line.move_id.line_ids.filtered(
+                lambda l: l.account_id == payable_account
+            )
+            self.assertTrue(payable_lines, "Statement line counterpart should be assigned to partner payable account")
+
+    def test_flat_json_response_for_payment_and_move_line(self):
+        """Test that flat JSON responses (without 'data' wrapper) from Embat API work for GET /payments and GET /accountingentries."""
+        journal = self.env['account.journal'].create({
+            'name': 'Flat Bank Journal',
+            'type': 'bank',
+            'code': 'BNKF',
+            'embat_id': 'journal_flat_1',
+        })
+        payment = self.env['account.payment'].create({
+            'amount': 250.0,
+            'payment_type': 'outbound',
+            'partner_type': 'supplier',
+            'date': '2024-03-01',
+            'journal_id': journal.id,
+            'currency_id': self.company.currency_id.id,
+        })
+        with patch('requests.post') as mock_post, patch('requests.get') as mock_get:
+            mock_post_response = MagicMock()
+            mock_post_response.ok = True
+            mock_post_response.status_code = 200
+            mock_post_response.text = '{"id": "pay_flat_1", "idToken": "fake_token"}'
+            mock_post_response.json.return_value = {"id": "pay_flat_1", "idToken": "fake_token"}
+            mock_post.return_value = mock_post_response
+
+            # Flat GET response as returned by real Embat API
+            mock_get_response = MagicMock()
+            mock_get_response.ok = True
+            mock_get_response.status_code = 200
+            mock_get_response.text = '{"id": "pay_flat_1", "transactionId": "txn_flat_99"}'
+            mock_get_response.json.return_value = {"id": "pay_flat_1", "transactionId": "txn_flat_99"}
+            mock_get.return_value = mock_get_response
+
+            self.company.use_embat = True
+            payment.send_payment_to_embat()
+            self.assertEqual(payment.embat_id, "pay_flat_1")
+            self.assertEqual(payment.embat_transaction_id, "txn_flat_99")
+            # Outbound payment amount sent to Embat must be negative
+            payment_post_calls = [c for c in mock_post.call_args_list if "payments/" in c[0][0]]
+            self.assertTrue(payment_post_calls)
+            self.assertEqual(payment_post_calls[0][1]["json"]["amount"], -250.0)

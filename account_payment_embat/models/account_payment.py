@@ -24,7 +24,7 @@ class AccountPayment(models.Model):
                 ("model", "=", record._name),
                 ("res_id", "=", record.id),
             ]
-            record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
+            record.embat_api_log_ids = self.env["embat.api.log"].sudo().search(domain)
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -60,32 +60,46 @@ class AccountPayment(models.Model):
 
     def _prepare_embat_payment_data(self):
         self.ensure_one()
+        sign = -1 if self.payment_type == "outbound" else 1
+        signed_amount = self.amount * sign
         operations = []
         if hasattr(self, 'payment_line_ids') and self.payment_line_ids:
             for payment_line in self.payment_line_ids:
                 if payment_line.move_line_id and payment_line.move_line_id.move_id:
+                    line_amount = (
+                        getattr(payment_line, "amount_currency", 0.0)
+                        or getattr(payment_line, "amount", 0.0)
+                        or self.amount
+                    )
                     operations.append(
                         {
-                            "amount": self.amount,
+                            "amount": abs(line_amount) * sign,
                             "customId": f"account.move-{payment_line.move_line_id.move_id.id}",
                         }
                     )
         else:
-            for invoice in (self.reconciled_invoice_ids | self.reconciled_bill_ids):
+            invoices = self.reconciled_invoice_ids | self.reconciled_bill_ids
+            for invoice in invoices:
+                inv_amount = (
+                    abs(invoice.amount_total_in_currency_signed) * sign
+                    if len(invoices) > 1
+                    else signed_amount
+                )
                 operations.append(
                     {
-                        "amount": self.amount,
+                        "amount": inv_amount,
                         "customId": f"account.move-{invoice.id}",
                     }
                 )
         payment_data = {
             "operations": operations,
-            "amount": self.amount,
-            "accountingAmount": self.amount,
+            "amount": signed_amount,
+            "accountingAmount": signed_amount,
             "currency": self.currency_id.name,
             "date": str(self.date) + 'T12:00:00.000Z',
             "concept": self.ref or self.name,
             "type": "operations",
+            "contactCustomId": str(self.partner_id.id) if self.partner_id else None,
             "contactCompanyId": self.partner_id.id if self.partner_id else None,
             "customId": f"{self._name}-{self.id}",
         }
@@ -101,24 +115,16 @@ class AccountPayment(models.Model):
     def send_payment_to_embat(self):
         """Send payment to Embat."""
         self.ensure_one()
-        if not self.env.company.use_embat:
+        company = self.company_id or self.env.company
+        if not company.use_embat:
             return
         
-        embat_data = self.env.company.embat_data_id
+        embat_data = company.embat_data_id
         if not embat_data:
             raise UserError(_("Please configure the Embat data first."))
             
         data = self._prepare_embat_payment_data()
-        
-        # Determine endpoint - assuming POST /payments/{company_id}
-        # Based on reconcile_embat.py usage of GET /payments/{company_id}
         endpoint = f"payments/{embat_data.embat_company_id}"
-        
-        # Check if already sent (has embat_id) -> maybe PUT/PATCH? 
-        # For now assume we only send new ones or re-send as POST (API dependency)
-        # But if embat_id is present, maybe we shouldn't send it again or use PATCH?
-        # The prompt implies "communicate each line", usually implying creation.
-        # account_move.py handles patch if embat_id exists. Let's do the same.
         
         request_type = "post"
         if self.embat_id:
@@ -131,7 +137,6 @@ class AccountPayment(models.Model):
             )
             
             if response.ok:
-                # Assuming response contains 'id' like in operations
                 if content and "id" in content:
                     self.embat_id = content["id"]
                     msg = _("Payment synced with Embat: %s") % self.embat_id
@@ -143,8 +148,13 @@ class AccountPayment(models.Model):
                         get_response, get_content = embat_data._embat_request(
                             get_endpoint, self, request_type="get"
                         )
-                        if get_response.ok and get_content and "data" in get_content:
-                            transaction_id = get_content["data"].get("transactionId")
+                        if get_response.ok and isinstance(get_content, dict):
+                            payload = (
+                                get_content["data"]
+                                if isinstance(get_content.get("data"), dict)
+                                else get_content
+                            )
+                            transaction_id = payload.get("transactionId")
                             if transaction_id:
                                 self.embat_transaction_id = transaction_id
                                 msg = _("Transaction ID retrieved from Embat: %s") % transaction_id
@@ -154,28 +164,35 @@ class AccountPayment(models.Model):
                         embat_data._create_log("WARNING", "PAYMENTS_WARNING", msg, self)
 
                 elif request_type == "post":
-                    # If POST succeeded but no ID returned? 
                     msg = _("Payment sent to Embat but no ID returned.")
                     embat_data._create_log("WARNING", "PAYMENTS_WARNING", msg, self)
 
-                if hasattr(self, 'payment_line_ids') and self.payment_line_ids:
-                    for payment_line in self.payment_line_ids:
-                        move = payment_line.move_line_id.move_id
-                        if not move.embat_id:
-                            continue
-                        endpoint = f"operations/{embat_data.embat_company_id}/account.move-{move.id}"
-                        request_type = "patch"
-                        move_data = self._prepare_embat_operation_data(move)
-                        try:
-                            response, content = embat_data._embat_request(
-                                endpoint, self, request_type=request_type, data=move_data
-                            )
-                            if response.ok:
-                                msg = _("Operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
-                                embat_data._create_log("INFO", "OPERATIONS_INFO", msg, self)
-                        except Exception as e:
-                            msg = _("Failed to sync operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
-                            embat_data._create_log("ERROR", "OPERATIONS_ERROR", msg, self)
+                moves_to_update = self.env["account.move"]
+                if hasattr(self, "payment_line_ids") and self.payment_line_ids:
+                    moves_to_update = self.payment_line_ids.mapped("move_line_id.move_id")
+                else:
+                    moves_to_update = self.reconciled_invoice_ids | self.reconciled_bill_ids
+
+                for move in moves_to_update:
+                    if not move.embat_id:
+                        continue
+                    endpoint = f"operations/{embat_data.embat_company_id}/account.move-{move.id}"
+                    request_type = "patch"
+                    move_data = self._prepare_embat_operation_data(move)
+                    try:
+                        response, content = embat_data._embat_request(
+                            endpoint,
+                            self,
+                            request_type=request_type,
+                            data=move_data,
+                            fallback_on_404=False,
+                        )
+                        if response.ok:
+                            msg = _("Operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
+                            embat_data._create_log("INFO", "OPERATIONS_INFO", msg, self)
+                    except Exception as e:
+                        msg = _("Failed to sync operation invoiceGroupDocumentId %s with Embat: %s") % (move_data['invoiceGroupDocumentId'], move.embat_id)
+                        embat_data._create_log("ERROR", "OPERATIONS_ERROR", msg, self)
                     
                     
         except Exception as e:
@@ -185,4 +202,3 @@ class AccountPayment(models.Model):
             # Or should we? User said "communicate", usually implies we want it to work.
             # But blocking a batch validation might be annoying. 
             # I will log and pass for now unless crucial.
-

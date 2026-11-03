@@ -11,6 +11,6 @@ class AccountMove(models.Model):
     def _prepare_embat_move_data(self, status, embat_type):
         data = super()._prepare_embat_move_data(status, embat_type)
         data['transactionIds'] = (
-            self.embat_transaction_id.split(",")
+            [t.strip().split("-")[-1] for t in self.embat_transaction_id.split(",") if t.strip()]
             if self.embat_transaction_id else [])
         return data
