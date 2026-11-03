@@ -30,7 +30,7 @@ class AccountMove(models.Model):
                 ("model", "=", record._name),
                 ("res_id", "=", record.id),
             ]
-            record.embat_api_log_ids = self.env["embat.api.log"].search(domain)
+            record.embat_api_log_ids = self.env["embat.api.log"].sudo().search(domain)
 
     def _prepare_embat_move_data(self, status, embat_type):
         self.ensure_one()
@@ -86,66 +86,63 @@ class AccountMove(models.Model):
         }
 
     def _load_embat_move_operation(self):
-        if self.env.company.use_embat:
-            for move in self:
-                embat_data = move.env.company.embat_data_id
-                if not embat_data:
-                    raise UserError(_("Please configure the Embat data first."))
-                date_value = move.date or fields.Date.context_today(move)
-                if isinstance(date_value, str):
-                    date_obj = fields.Date.from_string(date_value)
-                else:
-                    date_obj = date_value
-                embat_format_date = date_obj.strftime(EMBAT_DATE_FORMAT)
+        for move in self:
+            company = move.company_id or self.env.company
+            if not company.use_embat:
+                continue
+            embat_data = company.embat_data_id
+            if not embat_data:
+                raise UserError(_("Please configure the Embat data first."))
+            date_value = move.date or fields.Date.context_today(move)
+            if isinstance(date_value, str):
+                date_obj = fields.Date.from_string(date_value)
+            else:
+                date_obj = date_value
+            embat_format_date = date_obj.strftime(EMBAT_DATE_FORMAT)
 
+            status = "pending"
+            if move.state == "draft":
+                status = "shipped"
+            if move.state == "posted":
                 status = "pending"
-                if move.state == "draft":
-                    status = "shipped"
-                if move.state == "posted":
-                    status = "pending"
-                    if move.invoice_date_due and move.invoice_date_due > fields.Datetime.now().date():
-                        status = "overdue"
+                if move.invoice_date_due and move.invoice_date_due < fields.Date.context_today(move):
+                    status = "overdue"
 
-                    if move.payment_state == "paid":
-                        status = "paid"
-                    elif move.payment_state == "in_payment":
-                        status = "payment_in_progress"
-                if move.state == "cancel":
-                    status = "cancel"
-                embat_type = "client-supplier"
-                if move.partner_id.customer_rank == 0:
-                    embat_type = "supplier"
-                if move.partner_id.supplier_rank == 0:
-                    embat_type = "client"
-                # if move.move_type in ['out_invoice', 'in_refund', 'out_receipt']:
-                #     sign = 1
-                # else:
-                #     sign = -1
-                #
-                # amount_total = move.amount_total * sign
-                # amount_residual = move.amount_residual * sign
+                if move.payment_state == "paid":
+                    status = "paid"
+                elif move.payment_state == "in_payment":
+                    status = "payment_in_progress"
+            if move.state == "cancel":
+                status = "cancel"
+            embat_type = "client-supplier"
+            if move.partner_id.customer_rank == 0:
+                embat_type = "supplier"
+            if move.partner_id.supplier_rank == 0:
+                embat_type = "client"
 
-                data = move._prepare_embat_move_data(status, embat_type)
-                if move.embat_id:
-                    endpoint = "operations/" + embat_data.embat_company_id + "/" + str(move._name) + "-" + str(move.id)
-                    request_type = "patch"
-                else:
-                    endpoint = "operations/" + embat_data.embat_company_id
-                    request_type = "post"
-                response, content = embat_data._embat_request(endpoint, move, request_type=request_type, data=data)
-                if not content or "id" not in content:
-                    message = _("Could not retrieve the move line ID from Embat: %s") % (response)
-                    embat_data._create_log("ERROR", "OPERATIONS_ERROR", message, move)
-                    raise ValidationError(message)
-                move.embat_id = content["id"]
-                message = _("Move line synced with Embat successfully: %s") % (move.embat_id)
-                embat_data._create_log("INFO", "OPERATIONS_INFO", message, move)
+            data = move._prepare_embat_move_data(status, embat_type)
+            if move.embat_id:
+                endpoint = "operations/" + embat_data.embat_company_id + "/" + str(move._name) + "-" + str(move.id)
+                request_type = "patch"
+            else:
+                endpoint = "operations/" + embat_data.embat_company_id
+                request_type = "post"
+            response, content = embat_data._embat_request(endpoint, move, request_type=request_type, data=data)
+            if not content or "id" not in content:
+                message = _("Could not retrieve the move line ID from Embat: %s") % (response)
+                embat_data._create_log("ERROR", "OPERATIONS_ERROR", message, move)
+                raise ValidationError(message)
+            if not move.embat_id or content["id"] != "existing":
+                move.with_context(skip_embat_sync=True).embat_id = content["id"]
+            message = _("Move line synced with Embat successfully: %s") % (move.embat_id)
+            embat_data._create_log("INFO", "OPERATIONS_INFO", message, move)
                 
     def _delete_embat_move_line_operation(self):
         """Delete the Embat move line if it exists."""
         for move in self:
             if move.embat_id:
-                embat_data = move.env.company.embat_data_id
+                company = move.company_id or self.env.company
+                embat_data = company.embat_data_id
                 if not embat_data:
                     raise UserError(_("Please configure the Embat data first."))
                 endpoint = "operations/" + embat_data.embat_company_id + "/" + str(move._name) + "-" + str(move.id)
@@ -156,12 +153,13 @@ class AccountMove(models.Model):
                     raise ValidationError(message)
                 message = _("Move line deleted in Embat successfully: %s") % (move.embat_id)
                 embat_data._create_log("INFO", "OPERATIONS_INFO", message, move)
-                move.embat_id = False
+                move.with_context(skip_embat_sync=True).embat_id = False
 
     def action_post(self):
         res = super(AccountMove, self).action_post()
-        if self.env.company.use_embat:
-            for move in self:
+        for move in self:
+            company = move.company_id or self.env.company
+            if company.use_embat:
                 if move.journal_id and move.journal_id.embat_id and move.move_type in ['out_invoice', 'in_refund', 'out_receipt', 'in_invoice', 'in_receipt', 'out_refund']:
                     move._load_embat_move_operation()
                 for line in move.line_ids:

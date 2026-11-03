@@ -40,8 +40,41 @@ class TestBaseEmbat(TransactionCase):
         logs = self.env["embat.api.log"].sudo().search([
             ("model", "=", provider._name), ("res_id", "=", provider.id),
         ])
-        self.assertEqual(len(logs), 2)
+        self.assertEqual(len(logs), 1)
         self.assertEqual(set(logs.mapped("create_uid").ids), {user.id})
+
+    def test_single_api_log_and_404_document_exists_handling(self):
+        """Ensure _embat_request creates 1 log per call and handles 404 'The document exists' on PATCH."""
+        import requests
+        from unittest.mock import MagicMock
+
+        self.embat_data.write({
+            "embat_token": "valid_token",
+            "embat_token_expiration": "2099-01-01 00:00:00",
+        })
+        log_model = self.env["embat.api.log"].sudo()
+        before_count = log_model.search_count([])
+
+        with patch("odoo.addons.base_embat.models.embat_data.requests.patch") as mock_patch, \
+             patch("odoo.addons.base_embat.models.embat_data.requests.post") as mock_post:
+            resp_404 = MagicMock()
+            resp_404.status_code = 404
+            resp_404.text = '{"detail": "The document exists"}'
+            resp_404.json.return_value = {"detail": "The document exists"}
+            resp_404.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp_404)
+            mock_patch.return_value = resp_404
+
+            resp, content = self.embat_data._embat_request(
+                "operations/comp123/account.move-1",
+                self.embat_data,
+                request_type="patch",
+                data={"status": "paid"},
+            )
+            self.assertFalse(mock_post.called, "Should not retry as POST when 404 detail says 'The document exists'")
+            self.assertIn("id", content)
+
+        after_count = log_model.search_count([])
+        self.assertEqual(after_count - before_count, 1, "Exactly one embat.api.log record should be created per request")
 
     def test_get_api_url_test(self):
         """Test retrieving the test API URL."""

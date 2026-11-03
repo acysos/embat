@@ -4,8 +4,7 @@ from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 from odoo.tools import DEFAULT_SERVER_DATE_FORMAT as DF
 import datetime
-import logging
-_logger = logging.getLogger(__name__)
+
 
 EMBAT_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
@@ -54,14 +53,12 @@ class OnlineBankStatementProviderEmbat(models.Model):
                 message = _("List of banks retrieved from Embat successfully.")
                 provider.embat_data_id._create_log("INFO", "INFO", message, provider)
                 acc_number = provider.account_number.lower() if provider.account_number else False
-                _logger.info("Account Number: %s", acc_number)
                 if acc_number:
                     found_bank_id = False
                     for bank in content["data"]:
                         for bankproduct in bank.get("bankProducts", []):
                             accountnumber = bankproduct.get("accountNumber")
                             accountnumber = accountnumber.lower() if accountnumber else ""
-                            _logger.info("Account Number 2: %s", accountnumber)
                             if accountnumber == acc_number:
                                 found_bank_id = bankproduct["id"]
                                 break
@@ -94,7 +91,7 @@ class OnlineBankStatementProviderEmbat(models.Model):
                 debug_data += res
         if embat_providers:
             embat_date_since = date_since
-            if is_scheduled:
+            if is_scheduled or not embat_date_since:
                 lookback_days = int(
                     self.env["ir.config_parameter"]
                     .sudo()
@@ -125,11 +122,58 @@ class OnlineBankStatementProviderEmbat(models.Model):
                 res = super(OnlineBankStatementProviderEmbat, provider_ctx)._pull(
                     embat_date_since, date_until
                 )
-                if is_scheduled and provider.id not in pull_cache:
+                if provider.create_statement:
+                    provider._embat_recompute_journal_statement_balances()
+                cached_result = pull_cache.get(provider.id)
+                if is_scheduled and (not cached_result or cached_result.get("error")):
                     provider.last_successful_run = old_last_successful_run
                 if res:
                     debug_data += res
         return debug_data
+
+    def _statement_create_or_write(self, statement_values):
+        statement = super()._statement_create_or_write(statement_values)
+        if self.service == "embat" and self.create_statement and not self.env.context.get("embat_pull_range"):
+            self._embat_recompute_journal_statement_balances()
+        return statement
+
+    def _embat_recompute_journal_statement_balances(self):
+        """Ensure statement balances in the journal are consistent chronologically
+        when transactions are imported into past statements (e.g. 7-day lookback).
+        """
+        self.ensure_one()
+        if not self.journal_id:
+            return
+        AccountBankStatement = self.env["account.bank.statement"]
+        if self.env.context.get("scheduled"):
+            AccountBankStatement = AccountBankStatement.with_context(tracking_disable=True)
+        self.env.flush_all()
+        statements = AccountBankStatement.search(
+            [
+                ("journal_id", "=", self.journal_id.id),
+                ("first_line_index", "!=", False),
+            ],
+            order="first_line_index asc, id asc",
+        )
+        if not statements:
+            return
+        running_balance = statements[0].balance_start
+        for idx, stmt in enumerate(statements):
+            posted_lines = stmt.line_ids.filtered(lambda l: l.state == "posted")
+            expected_start = running_balance if idx > 0 else stmt.balance_start
+            expected_end = expected_start + sum(posted_lines.mapped("amount"))
+            vals = {}
+            if idx > 0 and stmt.currency_id.compare_amounts(stmt.balance_start, expected_start) != 0:
+                vals["balance_start"] = expected_start
+            if stmt.currency_id.compare_amounts(stmt.balance_end_real, expected_end) != 0 or "balance_start" in vals:
+                vals["balance_end_real"] = expected_end
+            if vals:
+                stmt.write(vals)
+            if stmt.currency_id.compare_amounts(stmt.balance_end, expected_end) != 0:
+                stmt._compute_balance_end()
+                stmt._compute_is_complete()
+            running_balance = expected_end
+        self.env.flush_all()
 
     def _obtain_statement_data(self, date_since, date_until):
         """Generic online cron overrided for acting when the sync is for GoCardless."""
@@ -169,6 +213,7 @@ class OnlineBankStatementProviderEmbat(models.Model):
             return {"data": []}
         endpoint = "transactions/" + self.embat_data_id.embat_company_id
         all_transactions = []
+        has_error = False
         while True:
             _response, data = self.embat_data_id._embat_request(
                 endpoint, self, params=params
@@ -176,6 +221,7 @@ class OnlineBankStatementProviderEmbat(models.Model):
             if not data or "data" not in data:
                 message = _("Error retrieving transactions from Embat: %s") % (_response)
                 self.embat_data_id._create_log("ERROR", "ERROR", message, self)
+                has_error = True
                 break
             all_transactions.extend(data.get("data") or [])
             next_page_token = data.get("nextPageToken")
@@ -184,7 +230,7 @@ class OnlineBankStatementProviderEmbat(models.Model):
                 self.embat_data_id._create_log("INFO", "INFO", message, self)
                 break
             params = dict(params, nextPageToken=next_page_token)
-        return {"data": all_transactions}
+        return {"data": all_transactions, "error": has_error}
 
     def _embat_obtain_statement_data(self, date_since, date_until):
         """Called from the cron or the manual pull wizard to obtain transactions for

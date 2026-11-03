@@ -9,7 +9,8 @@ class AccountBatchPayment(models.Model):
     def _send_after_validation(self):
         res = super()._send_after_validation()
         for batch in self:
-            if batch.journal_id.company_id.use_embat:
+            company = batch.journal_id.company_id
+            if company.use_embat:
                 for payment in batch.payment_ids:
-                    payment.send_payment_to_embat()
+                    payment.with_company(company).send_payment_to_embat()
         return res

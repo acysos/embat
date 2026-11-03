@@ -69,12 +69,19 @@ class AccountAnalyticAccount(models.Model):
                 check_endpoint = "attributes/" + embat_data.embat_company_id + "/" + plan_custom_id
                 try:
                     check_response, dummy_content = embat_data._embat_request(check_endpoint, account, request_type="get")
+                except requests.exceptions.HTTPError as e:
+                    if getattr(getattr(e, 'response', None), 'status_code', None) == 404:
+                        check_response = e.response
+                        dummy_content = None
+                    else:
+                        raise e
                 except UserError as e:
                     if "404" in str(e):
                         check_response = type('obj', (object,), {'status_code': 404})
                         dummy_content = None
                     else:
                         raise e
+                
                 if check_response.status_code == 200:
                     # The attribute exists, add values to it
                     endpoint = "attributes/" + embat_data.embat_company_id + "/" + plan_custom_id + "/values/bulk"
@@ -99,7 +106,7 @@ class AccountAnalyticAccount(models.Model):
                     response = check_response
                     content = dummy_content
 
-                if response.status_code not in [200, 201, 204] or not content:
+                if response.status_code not in [200, 201, 204] or (response.status_code != 204 and not content):
                     message = _("Could not sync the analytic account with Embat: %s") % (response.text)
                     embat_data._create_log("ERROR", "ATTRIBUTES_ERROR", message, account)
                     raise ValidationError(message)
@@ -135,7 +142,7 @@ class AccountAnalyticAccount(models.Model):
                 # -----------------------------------------------
 
                 if not synced_for_company:
-                    account.embat_mapping_ids = [(0, 0, {
+                    account.with_context(skip_embat_sync=True).embat_mapping_ids = [(0, 0, {
                         'company_id': comp.id,
                         'embat_id': plan_custom_id,
                     })]
@@ -146,13 +153,16 @@ class AccountAnalyticAccount(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         res = super(AccountAnalyticAccount, self).create(vals_list)
-        for account in res:
-            account._load_embat_analytic_account()
+        if not self.env.context.get("skip_embat_sync"):
+            for account in res:
+                account._load_embat_analytic_account()
         return res
 
     def write(self, vals):
         res = super(AccountAnalyticAccount, self).write(vals)
-        if 'embat_id' not in vals:
+        if not self.env.context.get("skip_embat_sync") and not (
+            set(vals.keys()) <= {"embat_id", "embat_mapping_ids"}
+        ):
             self._load_embat_analytic_account()
         return res
 
@@ -199,7 +209,14 @@ class AccountAnalyticAccount(models.Model):
                         {"customId": str(account.id)}
                     ]
                 }
-                response, content = embat_data._embat_request(endpoint, account, request_type="delete", data=data)
+                try:
+                    response, content = embat_data._embat_request(endpoint, account, request_type="delete", data=data)
+                except requests.exceptions.HTTPError as e:
+                    if getattr(getattr(e, 'response', None), 'status_code', None) == 404:
+                        response = e.response
+                        content = None
+                    else:
+                        raise e
                 if response.status_code not in [200, 204, 404]:
                     message = _("Could not delete the analytic account in Embat: %s") % (response.text)
                     embat_data._create_log("ERROR", "ATTRIBUTES_ERROR", message, account)

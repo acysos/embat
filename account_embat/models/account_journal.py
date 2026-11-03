@@ -19,7 +19,8 @@ class AccountJournal(models.Model):
     def update_product_embat(self, raise_exception=True):
         """Update the Embat product for the journal."""
         self.ensure_one()
-        embat_data = self.env.company.embat_data_id
+        company = self.company_id or self.env.company
+        embat_data = company.embat_data_id
         if not embat_data:
             if raise_exception:
                 raise UserError(_("Please configure the Embat data first."))
@@ -52,7 +53,7 @@ class AccountJournal(models.Model):
             if isinstance(products, list):
                 for product in products:
                     if isinstance(product, dict) and acc_number == product.get('iban'):
-                        self.embat_id = product.get('id')
+                        self.with_context(skip_embat_sync=True).embat_id = product.get('id')
                         if self.type == 'bank' and self.default_account_id and self.default_account_id.code:
                             if not self.default_account_id.embat_id:
                                 self.default_account_id._load_embat_account()
@@ -69,7 +70,7 @@ class AccountJournal(models.Model):
                                     raise ValidationError(_("Could not retrieve the product ID from Embat."))
                                 return False
                             if not self.embat_id:
-                                self.embat_id = content["id"]
+                                self.with_context(skip_embat_sync=True).embat_id = content["id"]
                         return True
             if raise_exception:
                 raise UserError(_("The bank account number does not match any product in Embat."))
@@ -90,18 +91,20 @@ class AccountJournal(models.Model):
     def create(self, vals_list):
         """Override create method to load Embat data after journal creation."""
         res = super(AccountJournal, self).create(vals_list)
-        if self.env.company.use_embat:
+        if not self.env.context.get("skip_embat_sync"):
             for journal in res:
-                if journal.type in ['bank']:
+                company = journal.company_id or self.env.company
+                if company.use_embat and journal.type in ['bank']:
                     journal.update_product_embat(raise_exception=False)
         return res
 
     def write(self, vals):
         """Override write method to update Embat data if necessary."""
         res = super(AccountJournal, self).write(vals)
-        if 'embat_id' not in vals and self.env.company.use_embat:
+        if not self.env.context.get("skip_embat_sync") and 'embat_id' not in vals:
             for journal in self:
-                if journal.type in ['bank']:
+                company = journal.company_id or self.env.company
+                if company.use_embat and journal.type in ['bank']:
                     journal.update_product_embat(raise_exception=False)
         return res
 
