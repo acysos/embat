@@ -44,13 +44,13 @@ class TestBaseEmbat(TransactionCase):
         
         # Let's verify the defaults from XML
         current_env = self.ConfigParam.get_param("embat.environment")
-        self.assertEqual(current_env, "test")
+        self.assertEqual(current_env, "production")
         
-        current_test_url = self.ConfigParam.get_param("embat.api_url.test")
-        self.assertEqual(current_test_url, "https://api-embat-fw3hjuy3oa-ey.a.run.app/")
+        current_prod_url = self.ConfigParam.get_param("embat.api_url.production")
+        self.assertEqual(current_prod_url, "https://api.embat.io")
 
         url = self.embat_data._get_api_url()
-        self.assertEqual(url, current_test_url)
+        self.assertEqual(url, current_prod_url)
 
     def test_get_requests_timeout(self):
         """Test retrieving requests timeout."""

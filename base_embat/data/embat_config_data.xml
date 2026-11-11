@@ -14,7 +14,7 @@
 
         <record id="embat_environment" model="ir.config_parameter">
             <field name="key">embat.environment</field>
-            <field name="value">test</field>
+            <field name="value">production</field>
         </record>
 
         <record id="embat_requests_timeout" model="ir.config_parameter">
