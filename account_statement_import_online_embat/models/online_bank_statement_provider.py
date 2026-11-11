@@ -324,7 +324,6 @@ class OnlineBankStatementProviderEmbat(models.Model):
                     "payment_ref": payment_ref,
                     "unique_import_id": tx_id,
                     "amount": amount_currency,
-                    "account_number": acc_number,
                     "narration": str(transaction),
                 }
             )
