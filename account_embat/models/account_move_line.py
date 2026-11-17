@@ -150,10 +150,19 @@ class AccountMoveLine(models.Model):
         """Override create method to load Embat data after move line creation."""
         res = super(AccountMoveLine, self).create(vals_list)
         if not self.env.context.get("skip_embat_sync"):
+            lines_to_send = self.env['account.move.line']
             for line in res:
                 company = line.company_id or line.move_id.company_id or self.env.company
-                if company.use_embat and line.journal_id and line.journal_id.embat_id and line.account_id.account_type in ['asset_cash']:
-                    line._load_embat_move_line_asset()
+                if company.use_embat and line.journal_id and line.journal_id.embat_id:
+                    if line.account_id.user_type_id.type in ['liquidity'] if hasattr(line.account_id, 'user_type_id') else line.account_id.account_type in ['asset_cash']:
+                        lines_to_send |= line
+                    elif line.move_id:
+                        asset_lines = line.move_id.line_ids.filtered(
+                            lambda l: l.account_id.user_type_id.type in ['liquidity'] if hasattr(l.account_id, 'user_type_id') else l.account_id.account_type in ['asset_cash']
+                        )
+                        lines_to_send |= asset_lines
+            if lines_to_send:
+                lines_to_send._load_embat_move_line_asset()
         return res
 
     def write(self, vals):
