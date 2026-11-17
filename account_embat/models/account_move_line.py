@@ -141,16 +141,29 @@ class AccountMoveLine(models.Model):
     def create(self, vals_list):
         """Override create method to load Embat data after move line creation."""
         res = super(AccountMoveLine, self).create(vals_list)
-        if self.env.company.use_embat:
+        if not self.env.context.get("skip_embat_sync") and self.env.company.use_embat:
+            lines_to_send = self.env['account.move.line']
             for line in res:
-                if line.journal_id and line.journal_id.embat_id and line.account_id.user_type_id.type in ['liquidity']:
-                    line._load_embat_move_line_asset()
+                if line.journal_id and line.journal_id.embat_id:
+                    if line.account_id.user_type_id.type in ['liquidity']:
+                        lines_to_send |= line
+                    elif line.move_id:
+                        asset_lines = line.move_id.line_ids.filtered(
+                            lambda l: l.account_id.user_type_id.type in ['liquidity']
+                        )
+                        lines_to_send |= asset_lines
+            if lines_to_send:
+                lines_to_send._load_embat_move_line_asset()
         return res
 
     def write(self, vals):
         """Override write method to load Embat data after move line update."""
         res = super(AccountMoveLine, self).write(vals)
-        if self.env.company.use_embat and 'embat_id' not in vals:
+        if (
+            not self.env.context.get("skip_embat_sync")
+            and self.env.company.use_embat
+            and not (set(vals.keys()) <= {"embat_id", "embat_transaction_ids"})
+        ):
             lines_to_send = self.env['account.move.line']
             for line in self:
                 if line.journal_id and line.journal_id.embat_id:
@@ -161,7 +174,8 @@ class AccountMoveLine(models.Model):
                             lambda l: l.account_id.user_type_id.type in ['liquidity'] if hasattr(l.account_id, 'user_type_id') else l.account_id.account_type in ['asset_cash']
                         )
                         lines_to_send |= asset_lines
-            lines_to_send._load_embat_move_line_asset()
+            if lines_to_send:
+                lines_to_send._load_embat_move_line_asset()
         return res
 
     def unlink(self):
